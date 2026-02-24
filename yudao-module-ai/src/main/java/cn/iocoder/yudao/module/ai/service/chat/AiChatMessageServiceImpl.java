@@ -267,8 +267,9 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
         // 4.2 构建 Prompt，并进行调用
         Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
         // 4.3 预算预扣费
+        Long tenantId = TenantContextHolder.getTenantId();
         AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
-                TenantContextHolder.getTenantId(), userId, estimateCost(model));
+                tenantId, userId, estimateCost(model));
         LocalDateTime requestTime = LocalDateTime.now();
         Flux<ChatResponse> streamResponse = chatModel.stream(prompt);
 
@@ -287,7 +288,7 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
             // 仅首次：返回知识库、联网搜索
             if (StrUtil.isEmpty(contentBuffer)) {
                 if (firstExecuteFlag.compareAndSet(true, false)) { // CAS 操作，确保仅执行一次
-                    Map<Long, AiKnowledgeDocumentDO> documentMap = TenantUtils.executeIgnore(() -> knowledgeDocumentService.getKnowledgeDocumentMap(
+                    Map<Long, AiKnowledgeDocumentDO> documentMap = TenantUtils.execute(tenantId, () -> knowledgeDocumentService.getKnowledgeDocumentMap(
                             convertSet(knowledgeSegments, AiKnowledgeSegmentSearchRespBO::getDocumentId)));
                     cacheSegments.set(BeanUtils.toBean(knowledgeSegments, AiChatMessageRespVO.KnowledgeSegment.class, segment -> {
                         AiKnowledgeDocumentDO document = documentMap.get(segment.getDocumentId());
@@ -314,8 +315,8 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                             .setReasoningContent(StrUtil.nullToDefault(newReasoningContent, "")) // 避免 null 的 情况
                             .setSegments(cacheSegments.get()).setWebSearchPages(cacheWebSearchPages.get()))); // 知识库 + 联网搜索
         }).doOnComplete(() -> {
-            // 忽略租户，因为 Flux 异步无法透传租户
-            TenantUtils.executeIgnore(() -> {
+            // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
+            TenantUtils.execute(tenantId, () -> {
                 chatMessageMapper.updateById(
                         new AiChatMessageDO().setId(assistantMessage.getId()).setContent(contentBuffer.toString())
                                 .setReasoningContent(reasoningContentBuffer.toString()));
@@ -326,8 +327,8 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
             });
         }).doOnError(throwable -> {
             log.error("[sendChatMessageStream][userId({}) sendReqVO({}) 发生异常]", userId, sendReqVO, throwable);
-            // 忽略租户，因为 Flux 异步无法透传租户
-            TenantUtils.executeIgnore(() -> {
+            // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
+            TenantUtils.execute(tenantId, () -> {
                 // 如果有内容，则更新内容
                 if (StrUtil.isNotEmpty(contentBuffer)) {
                     chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
@@ -345,8 +346,8 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
             });
         }).doOnCancel(() -> {
             log.info("[sendChatMessageStream][userId({}) sendReqVO({}) 取消请求]", userId, sendReqVO);
-            // 忽略租户，因为 Flux 异步无法透传租户
-            TenantUtils.executeIgnore(() -> {
+            // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
+            TenantUtils.execute(tenantId, () -> {
                 // 如果有内容，则更新内容
                 if (StrUtil.isNotEmpty(contentBuffer)) {
                     chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())

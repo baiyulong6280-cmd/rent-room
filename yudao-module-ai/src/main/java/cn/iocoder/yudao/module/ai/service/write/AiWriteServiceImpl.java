@@ -104,8 +104,9 @@ public class AiWriteServiceImpl implements AiWriteService {
         // 3.1 构建 Prompt，并进行调用
         Prompt prompt = buildPrompt(generateReqVO, model, systemMessage);
         // 3.2 预算预扣费
+        Long tenantId = TenantContextHolder.getTenantId();
         AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
-                TenantContextHolder.getTenantId(), userId, estimateCost(model));
+                tenantId, userId, estimateCost(model));
         LocalDateTime requestTime = LocalDateTime.now();
         Flux<ChatResponse> streamResponse = chatModel.stream(prompt);
 
@@ -120,8 +121,8 @@ public class AiWriteServiceImpl implements AiWriteService {
             // 响应结果
             return success(newContent);
         }).doOnComplete(() -> {
-            // 忽略租户，因为 Flux 异步无法透传租户
-            TenantUtils.executeIgnore(() -> {
+            // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
+            TenantUtils.execute(tenantId, () -> {
                 writeMapper.updateById(new AiWriteDO().setId(writeDO.getId()).setGeneratedContent(contentBuffer.toString()));
                 // 记录调用日志 + 预算结算
                 createCallLog(model, userId, writeDO.getId(), AiBizTypeEnum.WRITE.getType(),
@@ -130,8 +131,8 @@ public class AiWriteServiceImpl implements AiWriteService {
             });
         }).doOnError(throwable -> {
             log.error("[generateWriteContent][generateReqVO({}) 发生异常]", generateReqVO, throwable);
-            // 忽略租户，因为 Flux 异步无法透传租户
-            TenantUtils.executeIgnore(() -> {
+            // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
+            TenantUtils.execute(tenantId, () -> {
                 writeMapper.updateById(new AiWriteDO().setId(writeDO.getId()).setErrorMessage(throwable.getMessage()));
                 // 记录调用日志（失败）
                 createCallLog(model, userId, writeDO.getId(), AiBizTypeEnum.WRITE.getType(),
