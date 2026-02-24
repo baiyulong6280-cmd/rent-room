@@ -10,6 +10,7 @@ import cn.iocoder.yudao.module.ai.util.AiUtils;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
+import cn.iocoder.yudao.framework.tenant.core.context.TenantContextHolder;
 import cn.iocoder.yudao.framework.tenant.core.util.TenantUtils;
 import cn.iocoder.yudao.module.ai.controller.admin.write.vo.AiWriteGenerateReqVO;
 import cn.iocoder.yudao.module.ai.controller.admin.write.vo.AiWritePageReqVO;
@@ -25,7 +26,9 @@ import cn.iocoder.yudao.module.ai.enums.billing.AiBizTypeEnum;
 import cn.iocoder.yudao.module.ai.enums.billing.AiCallStatusEnum;
 import cn.iocoder.yudao.module.ai.enums.billing.AiTokenSourceEnum;
 import cn.iocoder.yudao.module.ai.enums.write.AiWriteTypeEnum;
+import cn.iocoder.yudao.module.ai.service.billing.AiBudgetChecker;
 import cn.iocoder.yudao.module.ai.service.billing.AiModelCallLogService;
+import cn.iocoder.yudao.module.ai.service.billing.AiModelPricingService;
 import cn.iocoder.yudao.module.ai.service.model.AiChatRoleService;
 import cn.iocoder.yudao.module.ai.service.model.AiModelService;
 import jakarta.annotation.Resource;
@@ -73,6 +76,12 @@ public class AiWriteServiceImpl implements AiWriteService {
     @Resource
     private AiModelCallLogService callLogService;
 
+    @Resource
+    private AiBudgetChecker budgetChecker;
+
+    @Resource
+    private AiModelPricingService modelPricingService;
+
     @Override
     public Flux<CommonResult<String>> generateWriteContent(AiWriteGenerateReqVO generateReqVO, Long userId) {
         // 1 获取写作模型。尝试获取写作助手角色，没有则使用默认模型
@@ -94,10 +103,13 @@ public class AiWriteServiceImpl implements AiWriteService {
 
         // 3.1 构建 Prompt，并进行调用
         Prompt prompt = buildPrompt(generateReqVO, model, systemMessage);
+        // 3.2 预算预扣费
+        AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
+                TenantContextHolder.getTenantId(), userId, estimateCost(model));
         LocalDateTime requestTime = LocalDateTime.now();
         Flux<ChatResponse> streamResponse = chatModel.stream(prompt);
 
-        // 3.2 流式返回
+        // 3.3 流式返回
         StringBuffer contentBuffer = new StringBuffer();
         AtomicReference<ChatResponse> lastChunkRef = new AtomicReference<>();
         return streamResponse.map(chunk -> {
@@ -111,9 +123,10 @@ public class AiWriteServiceImpl implements AiWriteService {
             // 忽略租户，因为 Flux 异步无法透传租户
             TenantUtils.executeIgnore(() -> {
                 writeMapper.updateById(new AiWriteDO().setId(writeDO.getId()).setGeneratedContent(contentBuffer.toString()));
-                // 记录调用日志
+                // 记录调用日志 + 预算结算
                 createCallLog(model, userId, writeDO.getId(), AiBizTypeEnum.WRITE.getType(),
-                        requestTime, lastChunkRef.get(), AiCallStatusEnum.SUCCESS.getStatus(), null);
+                        requestTime, lastChunkRef.get(), AiCallStatusEnum.SUCCESS.getStatus(), null,
+                        preDeductResult);
             });
         }).doOnError(throwable -> {
             log.error("[generateWriteContent][generateReqVO({}) 发生异常]", generateReqVO, throwable);
@@ -122,14 +135,17 @@ public class AiWriteServiceImpl implements AiWriteService {
                 writeMapper.updateById(new AiWriteDO().setId(writeDO.getId()).setErrorMessage(throwable.getMessage()));
                 // 记录调用日志（失败）
                 createCallLog(model, userId, writeDO.getId(), AiBizTypeEnum.WRITE.getType(),
-                        requestTime, null, AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage());
+                        requestTime, null, AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(), null);
+                // 释放预扣费
+                budgetChecker.release(preDeductResult);
             });
         }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.WRITE_STREAM_ERROR)));
     }
 
     private void createCallLog(AiModelDO model, Long userId, Long bizId, String bizType,
                                LocalDateTime requestTime, ChatResponse chatResponse,
-                               String status, String errorMessage) {
+                               String status, String errorMessage,
+                               AiBudgetChecker.PreDeductResult preDeductResult) {
         try {
             LocalDateTime responseTime = LocalDateTime.now();
             Integer promptTokens = null;
@@ -166,9 +182,27 @@ public class AiWriteServiceImpl implements AiWriteService {
                     .tokenSource(tokenSource)
                     .build();
             callLogService.createCallLog(callLog);
+            // 预算结算
+            if (preDeductResult != null) {
+                long actualCost = callLog.getCostAmount() != null ? callLog.getCostAmount() : 0L;
+                budgetChecker.settle(preDeductResult, actualCost);
+            }
         } catch (Exception e) {
             log.error("[createCallLog][userId({}) bizId({}) 记录调用日志失败]", userId, bizId, e);
         }
+    }
+
+    private long estimateCost(AiModelDO model) {
+        cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelPricingDO pricing =
+                modelPricingService.getLatestModelPricing(model.getId());
+        if (pricing == null) {
+            return 0L;
+        }
+        int maxTokens = model.getMaxTokens() != null ? model.getMaxTokens() : 4096;
+        long priceIn = pricing.getPriceInPer1m() != null ? pricing.getPriceInPer1m() : 0L;
+        long priceOut = pricing.getPriceOutPer1m() != null ? pricing.getPriceOutPer1m() : 0L;
+        return Math.round((double) maxTokens * priceIn / 1_000_000
+                + (double) maxTokens * priceOut / 1_000_000);
     }
 
     private AiModelDO getModel(AiChatRoleDO writeRole) {
