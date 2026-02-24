@@ -2,6 +2,8 @@ package cn.iocoder.yudao.module.ai.service.billing;
 
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.calllog.AiModelCallLogPageReqVO;
+import cn.iocoder.yudao.module.ai.controller.admin.model.vo.calllog.AiModelCallLogStatReqVO;
+import cn.iocoder.yudao.module.ai.controller.admin.model.vo.calllog.AiModelCallLogStatRespVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelCallLogDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelPricingDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.billing.AiModelCallLogMapper;
@@ -9,6 +11,9 @@ import cn.iocoder.yudao.module.ai.enums.billing.AiCallStatusEnum;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  * AI 模型调用日志 Service 实现类
@@ -47,6 +52,52 @@ public class AiModelCallLogServiceImpl implements AiModelCallLogService {
                 pageReqVO.getPlatform(), pageReqVO.getModelId(),
                 pageReqVO.getStatus(), pageReqVO.getBlocked(),
                 pageReqVO.getRequestTime());
+    }
+
+    @Override
+    public List<AiModelCallLogDO> getCallLogList(AiModelCallLogPageReqVO pageReqVO) {
+        return callLogMapper.selectList(
+                pageReqVO.getUserId(), pageReqVO.getBizType(),
+                pageReqVO.getPlatform(), pageReqVO.getModelId(),
+                pageReqVO.getStatus(), pageReqVO.getBlocked(),
+                pageReqVO.getRequestTime());
+    }
+
+    @Override
+    public AiModelCallLogStatRespVO getCallLogStat(AiModelCallLogStatReqVO statReqVO) {
+        Map<String, Object> statMap = callLogMapper.selectStat(
+                statReqVO.getUserId(), statReqVO.getPlatform(),
+                statReqVO.getModelId(), statReqVO.getBizType(),
+                statReqVO.getRequestTime());
+        if (statMap == null || statMap.isEmpty()) {
+            return AiModelCallLogStatRespVO.builder()
+                    .totalCount(0L).successCount(0L).failCount(0L)
+                    .totalPromptTokens(0L).totalCompletionTokens(0L).totalTokens(0L)
+                    .totalCostAmount(0L).totalCostAmountYuan(0.0).avgDurationMs(0L)
+                    .build();
+        }
+        long totalCostAmount = toLong(statMap.get("totalCostAmount"));
+        return AiModelCallLogStatRespVO.builder()
+                .totalCount(toLong(statMap.get("totalCount")))
+                .successCount(toLong(statMap.get("successCount")))
+                .failCount(toLong(statMap.get("failCount")))
+                .totalPromptTokens(toLong(statMap.get("totalPromptTokens")))
+                .totalCompletionTokens(toLong(statMap.get("totalCompletionTokens")))
+                .totalTokens(toLong(statMap.get("totalTokens")))
+                .totalCostAmount(totalCostAmount)
+                .totalCostAmountYuan(totalCostAmount / 1_000_000.0)
+                .avgDurationMs(toLong(statMap.get("avgDurationMs")))
+                .build();
+    }
+
+    private static long toLong(Object value) {
+        if (value == null) {
+            return 0L;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        return 0L;
     }
 
     /**
