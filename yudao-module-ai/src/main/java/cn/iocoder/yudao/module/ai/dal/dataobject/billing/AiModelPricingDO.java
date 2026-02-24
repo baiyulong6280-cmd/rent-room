@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.ai.dal.dataobject.billing;
 import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
 import cn.iocoder.yudao.framework.tenant.core.db.TenantBaseDO;
 import com.baomidou.mybatisplus.annotation.KeySequence;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.*;
@@ -37,18 +38,22 @@ public class AiModelPricingDO extends TenantBaseDO {
     /**
      * 输入单价：微元/100万 tokens（缓存未命中）
      */
+    @TableField("price_in_per_1m")
     private Long priceInPer1m;
     /**
      * 缓存命中输入单价：微元/100万 tokens，0 表示与输入同价（不区分）
      */
+    @TableField("price_cached_per_1m")
     private Long priceCachedPer1m;
     /**
      * 输出单价：微元/100万 tokens（标准输出）
      */
+    @TableField("price_out_per_1m")
     private Long priceOutPer1m;
     /**
      * 推理/思考输出单价：微元/100万 tokens，0 表示与输出同价（不区分）
      */
+    @TableField("price_reasoning_per_1m")
     private Long priceReasoningPer1m;
     /**
      * 状态

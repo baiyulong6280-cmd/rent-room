@@ -5,6 +5,7 @@ import cn.iocoder.yudao.module.ai.enums.billing.AiBizTypeEnum;
 import cn.iocoder.yudao.module.ai.enums.billing.AiCallStatusEnum;
 import cn.iocoder.yudao.module.ai.enums.billing.AiTokenSourceEnum;
 import com.baomidou.mybatisplus.annotation.KeySequence;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.*;
@@ -133,18 +134,22 @@ public class AiModelCallLogDO extends TenantBaseDO {
     /**
      * 输入单价快照：微元/100万 tokens（缓存未命中）
      */
+    @TableField("price_in_per_1m")
     private Long priceInPer1m;
     /**
      * 缓存命中输入单价快照：微元/100万 tokens，0 表示不区分
      */
+    @TableField("price_cached_per_1m")
     private Long priceCachedPer1m;
     /**
      * 输出单价快照：微元/100万 tokens（标准输出）
      */
+    @TableField("price_out_per_1m")
     private Long priceOutPer1m;
     /**
      * 推理/思考输出单价快照：微元/100万 tokens，0 表示不区分
      */
+    @TableField("price_reasoning_per_1m")
     private Long priceReasoningPer1m;
     /**
      * 本次调用费用，单位：微元（1元=1,000,000微元）
