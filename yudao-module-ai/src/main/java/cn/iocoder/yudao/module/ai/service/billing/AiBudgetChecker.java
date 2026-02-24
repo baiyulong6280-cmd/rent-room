@@ -1,8 +1,12 @@
 package cn.iocoder.yudao.module.ai.service.billing;
 
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
 import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiBudgetConfigDO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiBudgetLogDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiBudgetUsageDO;
+import cn.iocoder.yudao.module.ai.enums.billing.AiBudgetEventTypeEnum;
 import cn.iocoder.yudao.module.ai.enums.billing.AiBudgetPeriodTypeEnum;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -92,6 +96,9 @@ public class AiBudgetChecker {
     @Resource
     private AiBudgetUsageService budgetUsageService;
 
+    @Resource
+    private AiBudgetLogService budgetLogService;
+
     /**
      * 预扣费（调用模型前调用）
      *
@@ -131,9 +138,13 @@ public class AiBudgetChecker {
                 String.valueOf(userLimit), String.valueOf(tenantLimit), String.valueOf(estimatedCost));
 
         if (result != null && result == 1L) {
+            // 记录超限拦截事件
+            logBlockEvent(userId, periodStart, userLimit);
             throw exception(BUDGET_EXCEEDED);
         }
         if (result != null && result == 2L) {
+            // 记录租户级超限拦截事件
+            logBlockEvent(0L, periodStart, tenantLimit);
             throw exception(BUDGET_EXCEEDED);
         }
 
@@ -144,11 +155,7 @@ public class AiBudgetChecker {
      * 修正预扣费（调用模型后调用）
      *
      * 用实际费用替换预扣费用：delta = actualCost - preDeductResult.amount
-     * - delta > 0：再扣差额
-     * - delta < 0：退回差额
-     * - delta = 0：无需操作
-     *
-     * 同时更新 DB 用量
+     * 同时更新 DB 用量，并检查阈值告警
      */
     public void settle(PreDeductResult preDeductResult, long actualCost) {
         long delta = actualCost - preDeductResult.amount();
@@ -171,6 +178,12 @@ public class AiBudgetChecker {
                 budgetUsageService.addUsage(0L, preDeductResult.periodStart(), actualCost);
             }
         }
+
+        // 阈值告警检查
+        checkThresholdAlerts(preDeductResult.userId(), preDeductResult.periodStart(), actualCost);
+        if (preDeductResult.userId() != 0L) {
+            checkThresholdAlerts(0L, preDeductResult.periodStart(), actualCost);
+        }
     }
 
     /**
@@ -187,6 +200,98 @@ public class AiBudgetChecker {
         stringRedisTemplate.opsForValue().increment(userKey, -preDeductResult.amount());
         if (!userKey.equals(tenantKey)) {
             stringRedisTemplate.opsForValue().increment(tenantKey, -preDeductResult.amount());
+        }
+    }
+
+    // ========== 阈值告警 ==========
+
+    /**
+     * 检查是否跨越阈值并记录告警事件
+     *
+     * 逻辑：扣费前的使用比例 < 阈值 <= 扣费后的使用比例 → 触发告警
+     */
+    private void checkThresholdAlerts(Long userId, LocalDateTime periodStart, long deltaAmount) {
+        try {
+            AiBudgetConfigDO config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.MONTHLY.getType());
+            if (config == null || !CommonStatusEnum.ENABLE.getStatus().equals(config.getStatus())) {
+                return;
+            }
+            long budgetAmount = config.getBudgetAmount();
+            if (budgetAmount <= 0) {
+                return;
+            }
+
+            // 解析阈值配置
+            List<Integer> thresholds = parseThresholds(config.getAlertThresholds());
+            if (thresholds.isEmpty()) {
+                return;
+            }
+
+            // 查询当前已用金额
+            AiBudgetUsageDO usage = budgetUsageService.getUsage(userId, periodStart);
+            long usedAmount = usage != null ? usage.getUsedAmount() : 0L;
+            long previousUsed = usedAmount - deltaAmount;
+
+            double currentPercent = (double) usedAmount / budgetAmount * 100;
+            double previousPercent = (double) previousUsed / budgetAmount * 100;
+
+            for (int threshold : thresholds) {
+                // 本次扣费跨越了该阈值
+                if (previousPercent < threshold && currentPercent >= threshold) {
+                    AiBudgetLogDO logDO = AiBudgetLogDO.builder()
+                            .userId(userId)
+                            .eventType(AiBudgetEventTypeEnum.THRESHOLD_ALERT.getType())
+                            .periodStartTime(periodStart)
+                            .currency("CNY")
+                            .budgetAmount(budgetAmount)
+                            .usedAmount(usedAmount)
+                            .deltaAmount(deltaAmount)
+                            .message(StrUtil.format("预算使用达到{}%阈值（已用{}/预算{}微元）",
+                                    threshold, usedAmount, budgetAmount))
+                            .build();
+                    budgetLogService.createBudgetLog(logDO);
+                    log.warn("[checkThresholdAlerts][userId({}) 预算使用达到{}%阈值, used={}, budget={}]",
+                            userId, threshold, usedAmount, budgetAmount);
+                }
+            }
+        } catch (Exception e) {
+            log.error("[checkThresholdAlerts][userId({}) 阈值告警检查失败]", userId, e);
+        }
+    }
+
+    /**
+     * 记录超限拦截事件
+     */
+    private void logBlockEvent(Long userId, LocalDateTime periodStart, long budgetAmount) {
+        try {
+            AiBudgetUsageDO usage = budgetUsageService.getUsage(userId, periodStart);
+            long usedAmount = usage != null ? usage.getUsedAmount() : 0L;
+            AiBudgetLogDO logDO = AiBudgetLogDO.builder()
+                    .userId(userId)
+                    .eventType(AiBudgetEventTypeEnum.OVER_LIMIT_BLOCK.getType())
+                    .periodStartTime(periodStart)
+                    .currency("CNY")
+                    .budgetAmount(budgetAmount)
+                    .usedAmount(usedAmount)
+                    .message(StrUtil.format("预算超限拦截（已用{}/预算{}微元）", usedAmount, budgetAmount))
+                    .build();
+            budgetLogService.createBudgetLog(logDO);
+        } catch (Exception e) {
+            log.error("[logBlockEvent][userId({}) 记录拦截事件失败]", userId, e);
+        }
+    }
+
+    /**
+     * 解析阈值配置，例如 "[80,90,100]" → [80, 90, 100]
+     */
+    private List<Integer> parseThresholds(String alertThresholds) {
+        if (StrUtil.isBlank(alertThresholds)) {
+            return List.of(80, 90, 100); // 默认阈值
+        }
+        try {
+            return JSONUtil.toList(alertThresholds, Integer.class);
+        } catch (Exception e) {
+            return List.of(80, 90, 100);
         }
     }
 
