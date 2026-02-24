@@ -252,17 +252,21 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
 
         // 4.2 构建 Prompt，并进行调用
         Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
+        LocalDateTime requestTime = LocalDateTime.now();
         Flux<ChatResponse> streamResponse = chatModel.stream(prompt);
 
         // 4.3 流式返回
         StringBuffer contentBuffer = new StringBuffer();
         StringBuffer reasoningContentBuffer = new StringBuffer();
+        AtomicReference<ChatResponse> lastChunkRef = new AtomicReference<>();
 
         // 防止执行多次知识库和联网搜索
         AtomicBoolean firstExecuteFlag = new AtomicBoolean(true);
         AtomicReference<List<AiChatMessageRespVO.KnowledgeSegment>> cacheSegments = new AtomicReference<>();
         AtomicReference<List<AiWebSearchResponse.WebPage>> cacheWebSearchPages = new AtomicReference<>();
         return streamResponse.map(chunk -> {
+            // 持续更新最后一个 chunk，用于 doOnComplete 时提取 usage
+            lastChunkRef.set(chunk);
             // 仅首次：返回知识库、联网搜索
             if (StrUtil.isEmpty(contentBuffer)) {
                 if (firstExecuteFlag.compareAndSet(true, false)) { // CAS 操作，确保仅执行一次
@@ -294,9 +298,15 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                             .setSegments(cacheSegments.get()).setWebSearchPages(cacheWebSearchPages.get()))); // 知识库 + 联网搜索
         }).doOnComplete(() -> {
             // 忽略租户，因为 Flux 异步无法透传租户
-            TenantUtils.executeIgnore(() -> chatMessageMapper.updateById(
-                    new AiChatMessageDO().setId(assistantMessage.getId()).setContent(contentBuffer.toString())
-                            .setReasoningContent(reasoningContentBuffer.toString())));
+            TenantUtils.executeIgnore(() -> {
+                chatMessageMapper.updateById(
+                        new AiChatMessageDO().setId(assistantMessage.getId()).setContent(contentBuffer.toString())
+                                .setReasoningContent(reasoningContentBuffer.toString()));
+                // 记录调用日志
+                createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
+                        requestTime, lastChunkRef.get(), AiCallStatusEnum.SUCCESS.getStatus(), null,
+                        null, null, null, null, null, null);
+            });
         }).doOnError(throwable -> {
             log.error("[sendChatMessageStream][userId({}) sendReqVO({}) 发生异常]", userId, sendReqVO, throwable);
             // 忽略租户，因为 Flux 异步无法透传租户
@@ -309,6 +319,10 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                     // 否则，则进行删除
                     chatMessageMapper.deleteById(assistantMessage.getId());
                 }
+                // 记录调用日志（失败）
+                createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
+                        requestTime, null, AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(),
+                        null, null, null, null, null, AiTokenSourceEnum.NONE.getSource());
             });
         }).doOnCancel(() -> {
             log.info("[sendChatMessageStream][userId({}) sendReqVO({}) 取消请求]", userId, sendReqVO);
@@ -322,6 +336,10 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                     // 否则，则进行删除
                     chatMessageMapper.deleteById(assistantMessage.getId());
                 }
+                // 记录调用日志（取消）
+                createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
+                        requestTime, null, AiCallStatusEnum.CANCEL.getStatus(), null,
+                        null, null, null, null, null, AiTokenSourceEnum.NONE.getSource());
             });
         }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.CHAT_STREAM_ERROR)));
     }
