@@ -20,12 +20,17 @@ import cn.iocoder.yudao.module.ai.dal.dataobject.knowledge.AiKnowledgeDocumentDO
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiChatRoleDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiToolDO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelCallLogDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.chat.AiChatMessageMapper;
 import cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants;
+import cn.iocoder.yudao.module.ai.enums.billing.AiBizTypeEnum;
+import cn.iocoder.yudao.module.ai.enums.billing.AiCallStatusEnum;
+import cn.iocoder.yudao.module.ai.enums.billing.AiTokenSourceEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
 import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchClient;
 import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchRequest;
 import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchResponse;
+import cn.iocoder.yudao.module.ai.service.billing.AiModelCallLogService;
 import cn.iocoder.yudao.module.ai.service.knowledge.AiKnowledgeDocumentService;
 import cn.iocoder.yudao.module.ai.service.knowledge.AiKnowledgeSegmentService;
 import cn.iocoder.yudao.module.ai.service.knowledge.bo.AiKnowledgeSegmentSearchReqBO;
@@ -43,6 +48,7 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.StreamingChatModel;
@@ -122,6 +128,9 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
     @Resource
     private AiToolService toolService;
 
+    @Resource
+    private AiModelCallLogService callLogService;
+
     @SuppressWarnings("SpringJavaAutowiredFieldsWarningInspection")
     @Autowired(required = false) // 由于 yudao.ai.web-search.enable 配置项，可以关闭 AiWebSearchClient 的功能，所以这里只能不强制注入
     private AiWebSearchClient webSearchClient;
@@ -171,14 +180,29 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
 
         // 4.2 创建 chat 需要的 Prompt
         Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
-        ChatResponse chatResponse = chatModel.call(prompt);
+        // 4.3 调用模型，记录调用日志
+        LocalDateTime requestTime = LocalDateTime.now();
+        ChatResponse chatResponse;
+        try {
+            chatResponse = chatModel.call(prompt);
+        } catch (Exception e) {
+            // 失败时也记录调用日志
+            createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
+                    requestTime, null, AiCallStatusEnum.FAIL.getStatus(), e.getMessage(),
+                    null, null, null, null, null, AiTokenSourceEnum.NONE.getSource());
+            throw e;
+        }
+        // 提取 usage 并记录成功日志
+        createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
+                requestTime, chatResponse, AiCallStatusEnum.SUCCESS.getStatus(), null,
+                null, null, null, null, null, null);
 
-        // 4.3 更新响应内容
+        // 4.4 更新响应内容
         String newContent = AiUtils.getChatResponseContent(chatResponse);
         String newReasoningContent = AiUtils.getChatResponseReasoningContent(chatResponse);
         chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
                 .setContent(newContent).setReasoningContent(newReasoningContent));
-        // 4.4 响应结果
+        // 4.5 响应结果
         Map<Long, AiKnowledgeDocumentDO> documentMap = knowledgeDocumentService.getKnowledgeDocumentMap(
                 convertSet(knowledgeSegments, AiKnowledgeSegmentSearchRespBO::getDocumentId));
         List<AiChatMessageRespVO.KnowledgeSegment> segments = BeanUtils.toBean(knowledgeSegments,
@@ -300,6 +324,88 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 }
             });
         }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.CHAT_STREAM_ERROR)));
+    }
+
+    /**
+     * 创建聊天调用日志
+     *
+     * @param model           模型
+     * @param userId          用户编号
+     * @param bizId           业务主键（assistant message id）
+     * @param conversationId  会话编号
+     * @param requestTime     请求时间
+     * @param chatResponse    响应（成功时传入，失败时为 null）
+     * @param status          状态
+     * @param errorMessage    错误信息
+     * @param promptTokens    输入 token（覆盖 usage 提取值，传 null 则从 response 提取）
+     * @param completionTokens 输出 token
+     * @param cachedTokens    缓存命中 token
+     * @param reasoningTokens 推理 token
+     * @param totalTokens     总 token
+     * @param tokenSource     token 来源（传 null 则自动判断）
+     */
+    private void createChatCallLog(AiModelDO model, Long userId, Long bizId, Long conversationId,
+                                   LocalDateTime requestTime, ChatResponse chatResponse,
+                                   String status, String errorMessage,
+                                   Integer promptTokens, Integer completionTokens,
+                                   Integer cachedTokens, Integer reasoningTokens,
+                                   Integer totalTokens, String tokenSource) {
+        try {
+            LocalDateTime responseTime = LocalDateTime.now();
+            long durationMs = java.time.Duration.between(requestTime, responseTime).toMillis();
+
+            // 从 ChatResponse 提取 usage
+            if (chatResponse != null && chatResponse.getMetadata() != null
+                    && chatResponse.getMetadata().getUsage() != null) {
+                Usage usage = chatResponse.getMetadata().getUsage();
+                if (promptTokens == null) {
+                    promptTokens = usage.getPromptTokens();
+                }
+                if (completionTokens == null) {
+                    completionTokens = usage.getCompletionTokens();
+                }
+                if (totalTokens == null) {
+                    totalTokens = usage.getTotalTokens();
+                }
+                if (tokenSource == null) {
+                    tokenSource = AiTokenSourceEnum.PROVIDER.getSource();
+                }
+            }
+            if (tokenSource == null) {
+                tokenSource = AiTokenSourceEnum.NONE.getSource();
+            }
+
+            // 截断错误信息
+            if (errorMessage != null && errorMessage.length() > 1024) {
+                errorMessage = errorMessage.substring(0, 1024);
+            }
+
+            AiModelCallLogDO callLog = AiModelCallLogDO.builder()
+                    .userId(userId)
+                    .platform(model.getPlatform())
+                    .modelId(model.getId())
+                    .model(model.getModel())
+                    .apiKeyId(model.getKeyId())
+                    .bizType(AiBizTypeEnum.CHAT_MESSAGE.getType())
+                    .bizId(bizId)
+                    .conversationId(conversationId)
+                    .requestTime(requestTime)
+                    .responseTime(responseTime)
+                    .durationMs((int) durationMs)
+                    .status(status)
+                    .errorMessage(errorMessage)
+                    .promptTokens(promptTokens)
+                    .completionTokens(completionTokens)
+                    .totalTokens(totalTokens)
+                    .cachedTokens(cachedTokens)
+                    .reasoningTokens(reasoningTokens)
+                    .tokenSource(tokenSource)
+                    .build();
+            callLogService.createCallLog(callLog);
+        } catch (Exception e) {
+            // 调用日志记录失败不应影响主流程
+            log.error("[createChatCallLog][userId({}) bizId({}) 记录调用日志失败]", userId, bizId, e);
+        }
     }
 
     private List<AiKnowledgeSegmentSearchRespBO> recallKnowledgeSegment(String content,
