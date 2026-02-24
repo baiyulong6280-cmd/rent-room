@@ -9,6 +9,7 @@ import cn.hutool.http.HttpUtil;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
+import cn.iocoder.yudao.framework.tenant.core.context.TenantContextHolder;
 import cn.iocoder.yudao.framework.tenant.core.util.TenantUtils;
 import cn.iocoder.yudao.module.ai.controller.admin.chat.vo.message.AiChatMessagePageReqVO;
 import cn.iocoder.yudao.module.ai.controller.admin.chat.vo.message.AiChatMessageRespVO;
@@ -30,7 +31,9 @@ import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
 import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchClient;
 import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchRequest;
 import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchResponse;
+import cn.iocoder.yudao.module.ai.service.billing.AiBudgetChecker;
 import cn.iocoder.yudao.module.ai.service.billing.AiModelCallLogService;
+import cn.iocoder.yudao.module.ai.service.billing.AiModelPricingService;
 import cn.iocoder.yudao.module.ai.service.knowledge.AiKnowledgeDocumentService;
 import cn.iocoder.yudao.module.ai.service.knowledge.AiKnowledgeSegmentService;
 import cn.iocoder.yudao.module.ai.service.knowledge.bo.AiKnowledgeSegmentSearchReqBO;
@@ -131,6 +134,12 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
     @Resource
     private AiModelCallLogService callLogService;
 
+    @Resource
+    private AiBudgetChecker budgetChecker;
+
+    @Resource
+    private AiModelPricingService modelPricingService;
+
     @SuppressWarnings("SpringJavaAutowiredFieldsWarningInspection")
     @Autowired(required = false) // 由于 yudao.ai.web-search.enable 配置项，可以关闭 AiWebSearchClient 的功能，所以这里只能不强制注入
     private AiWebSearchClient webSearchClient;
@@ -180,22 +189,27 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
 
         // 4.2 创建 chat 需要的 Prompt
         Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
-        // 4.3 调用模型，记录调用日志
+        // 4.3 预算预扣费
+        AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
+                TenantContextHolder.getTenantId(), userId, estimateCost(model));
+        // 4.4 调用模型，记录调用日志
         LocalDateTime requestTime = LocalDateTime.now();
         ChatResponse chatResponse;
         try {
             chatResponse = chatModel.call(prompt);
         } catch (Exception e) {
+            // 释放预扣费
+            budgetChecker.release(preDeductResult);
             // 失败时也记录调用日志
             createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
                     requestTime, null, AiCallStatusEnum.FAIL.getStatus(), e.getMessage(),
-                    null, null, null, null, null, AiTokenSourceEnum.NONE.getSource());
+                    null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
             throw e;
         }
         // 提取 usage 并记录成功日志
         createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
                 requestTime, chatResponse, AiCallStatusEnum.SUCCESS.getStatus(), null,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, preDeductResult);
 
         // 4.4 更新响应内容
         String newContent = AiUtils.getChatResponseContent(chatResponse);
@@ -252,6 +266,9 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
 
         // 4.2 构建 Prompt，并进行调用
         Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
+        // 4.3 预算预扣费
+        AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
+                TenantContextHolder.getTenantId(), userId, estimateCost(model));
         LocalDateTime requestTime = LocalDateTime.now();
         Flux<ChatResponse> streamResponse = chatModel.stream(prompt);
 
@@ -305,7 +322,7 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 // 记录调用日志
                 createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
                         requestTime, lastChunkRef.get(), AiCallStatusEnum.SUCCESS.getStatus(), null,
-                        null, null, null, null, null, null);
+                        null, null, null, null, null, null, preDeductResult);
             });
         }).doOnError(throwable -> {
             log.error("[sendChatMessageStream][userId({}) sendReqVO({}) 发生异常]", userId, sendReqVO, throwable);
@@ -322,7 +339,9 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 // 记录调用日志（失败）
                 createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
                         requestTime, null, AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(),
-                        null, null, null, null, null, AiTokenSourceEnum.NONE.getSource());
+                        null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
+                // 释放预扣费
+                budgetChecker.release(preDeductResult);
             });
         }).doOnCancel(() -> {
             log.info("[sendChatMessageStream][userId({}) sendReqVO({}) 取消请求]", userId, sendReqVO);
@@ -339,7 +358,9 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 // 记录调用日志（取消）
                 createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
                         requestTime, null, AiCallStatusEnum.CANCEL.getStatus(), null,
-                        null, null, null, null, null, AiTokenSourceEnum.NONE.getSource());
+                        null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
+                // 释放预扣费
+                budgetChecker.release(preDeductResult);
             });
         }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.CHAT_STREAM_ERROR)));
     }
@@ -367,7 +388,8 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                                    String status, String errorMessage,
                                    Integer promptTokens, Integer completionTokens,
                                    Integer cachedTokens, Integer reasoningTokens,
-                                   Integer totalTokens, String tokenSource) {
+                                   Integer totalTokens, String tokenSource,
+                                   AiBudgetChecker.PreDeductResult preDeductResult) {
         try {
             LocalDateTime responseTime = LocalDateTime.now();
             long durationMs = java.time.Duration.between(requestTime, responseTime).toMillis();
@@ -420,10 +442,36 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                     .tokenSource(tokenSource)
                     .build();
             callLogService.createCallLog(callLog);
+
+            // 预算结算：用实际费用修正预扣费
+            if (preDeductResult != null) {
+                long actualCost = callLog.getCostAmount() != null ? callLog.getCostAmount() : 0L;
+                budgetChecker.settle(preDeductResult, actualCost);
+            }
         } catch (Exception e) {
             // 调用日志记录失败不应影响主流程
             log.error("[createChatCallLog][userId({}) bizId({}) 记录调用日志失败]", userId, bizId, e);
         }
+    }
+
+    /**
+     * 估算一次调用的最大费用（微元），用于预扣费
+     *
+     * 策略：按 maxTokens 作为输出上限，同等量作为输入，用模型单价计算
+     * 无计费配置时返回 0（不做预算拦截）
+     */
+    private long estimateCost(AiModelDO model) {
+        cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelPricingDO pricing =
+                modelPricingService.getLatestModelPricing(model.getId());
+        if (pricing == null) {
+            return 0L;
+        }
+        int maxTokens = model.getMaxTokens() != null ? model.getMaxTokens() : 4096;
+        long priceIn = pricing.getPriceInPer1m() != null ? pricing.getPriceInPer1m() : 0L;
+        long priceOut = pricing.getPriceOutPer1m() != null ? pricing.getPriceOutPer1m() : 0L;
+        // 估算：输入 maxTokens + 输出 maxTokens
+        return Math.round((double) maxTokens * priceIn / 1_000_000
+                + (double) maxTokens * priceOut / 1_000_000);
     }
 
     private List<AiKnowledgeSegmentSearchRespBO> recallKnowledgeSegment(String content,
