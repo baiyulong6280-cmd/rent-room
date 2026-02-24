@@ -1,0 +1,107 @@
+package cn.iocoder.yudao.module.ai.service.billing;
+
+import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.module.ai.controller.admin.model.vo.calllog.AiModelCallLogPageReqVO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelCallLogDO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelPricingDO;
+import cn.iocoder.yudao.module.ai.dal.mysql.billing.AiModelCallLogMapper;
+import cn.iocoder.yudao.module.ai.enums.billing.AiCallStatusEnum;
+import jakarta.annotation.Resource;
+import org.springframework.stereotype.Service;
+import org.springframework.validation.annotation.Validated;
+
+/**
+ * AI 模型调用日志 Service 实现类
+ *
+ * @author 芋道源码
+ */
+@Service
+@Validated
+public class AiModelCallLogServiceImpl implements AiModelCallLogService {
+
+    @Resource
+    private AiModelCallLogMapper callLogMapper;
+
+    @Resource
+    private AiModelPricingService modelPricingService;
+
+    @Override
+    public Long createCallLog(AiModelCallLogDO callLog) {
+        // 1. 查询计费配置，填充价格快照 + 计算费用
+        fillPricingAndCost(callLog);
+
+        // 2. 插入
+        callLogMapper.insert(callLog);
+        return callLog.getId();
+    }
+
+    @Override
+    public AiModelCallLogDO getCallLog(Long id) {
+        return callLogMapper.selectById(id);
+    }
+
+    @Override
+    public PageResult<AiModelCallLogDO> getCallLogPage(AiModelCallLogPageReqVO pageReqVO) {
+        return callLogMapper.selectPage(pageReqVO,
+                pageReqVO.getUserId(), pageReqVO.getBizType(),
+                pageReqVO.getPlatform(), pageReqVO.getModelId(),
+                pageReqVO.getStatus(), pageReqVO.getBlocked(),
+                pageReqVO.getRequestTime());
+    }
+
+    /**
+     * 填充价格快照并计算费用
+     *
+     * 规则：
+     * - 查询模型最新启用的计费配置，快照四档单价到日志
+     * - 失败且无 token 时，费用为 0
+     * - 无计费配置时，单价和费用均为 0
+     */
+    private void fillPricingAndCost(AiModelCallLogDO callLog) {
+        // 默认值
+        if (callLog.getCurrency() == null) {
+            callLog.setCurrency("CNY");
+        }
+        if (callLog.getBlocked() == null) {
+            callLog.setBlocked(false);
+        }
+
+        // 查询计费配置
+        AiModelPricingDO pricing = null;
+        if (callLog.getModelId() != null) {
+            pricing = modelPricingService.getLatestModelPricing(callLog.getModelId());
+        }
+
+        // 快照单价
+        if (pricing != null) {
+            callLog.setPriceInPer1m(pricing.getPriceInPer1m());
+            callLog.setPriceCachedPer1m(pricing.getPriceCachedPer1m());
+            callLog.setPriceOutPer1m(pricing.getPriceOutPer1m());
+            callLog.setPriceReasoningPer1m(pricing.getPriceReasoningPer1m());
+        } else {
+            callLog.setPriceInPer1m(0L);
+            callLog.setPriceCachedPer1m(0L);
+            callLog.setPriceOutPer1m(0L);
+            callLog.setPriceReasoningPer1m(0L);
+        }
+
+        // 失败且无 token 时不计费
+        if (AiCallStatusEnum.FAIL.getStatus().equals(callLog.getStatus())
+                && isTokenEmpty(callLog)) {
+            callLog.setCostAmount(0L);
+            return;
+        }
+
+        // 计算费用
+        callLog.setCostAmount(AiCostCalculator.calculateCost(
+                callLog.getPromptTokens(), callLog.getCompletionTokens(),
+                callLog.getCachedTokens(), callLog.getReasoningTokens(),
+                pricing));
+    }
+
+    private boolean isTokenEmpty(AiModelCallLogDO callLog) {
+        return (callLog.getPromptTokens() == null || callLog.getPromptTokens() == 0)
+                && (callLog.getCompletionTokens() == null || callLog.getCompletionTokens() == 0);
+    }
+
+}
