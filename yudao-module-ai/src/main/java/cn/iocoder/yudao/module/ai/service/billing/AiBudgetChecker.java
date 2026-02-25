@@ -160,6 +160,11 @@ public class AiBudgetChecker {
      *
      * 用实际费用替换预扣费用：delta = actualCost - preDeductResult.amount
      * 同时更新 DB 用量，并检查阈值告警
+     *
+     * 性能说明：settle 会写 Redis + DB 两层。Redis 修正是 O(1)；
+     * DB 层通过 SQL 原子累加写入 ai_budget_usage，租户级为热点行。
+     * 若高并发下 DB 成为瓶颈，可将 settle 改为异步 MQ 消费，
+     * 或租户级用量仅依赖 Redis，定期批量同步到 DB。
      */
     public void settle(PreDeductResult preDeductResult, long actualCost) {
         long delta = actualCost - preDeductResult.amount();
