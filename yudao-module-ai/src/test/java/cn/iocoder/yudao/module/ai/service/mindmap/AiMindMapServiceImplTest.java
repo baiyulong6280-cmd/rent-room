@@ -100,4 +100,17 @@ public class AiMindMapServiceImplTest extends BaseMockitoUnitTest {
         verify(budgetChecker, timeout(1000).times(1)).release(eq(preDeductResult));
         verify(callLogService, never()).createCallLog(any());
     }
+
+    @Test
+    public void testGenerateMindMap_errorPathShouldReleaseWhenUpdateFails() {
+        AiMindMapGenerateReqVO reqVO = new AiMindMapGenerateReqVO();
+        reqVO.setPrompt("测试异常");
+
+        when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.error(new RuntimeException("stream error")));
+        doThrow(new RuntimeException("db error")).when(mindMapMapper).updateById(any(AiMindMapDO.class));
+
+        mindMapService.generateMindMap(reqVO, 2L).subscribe();
+
+        verify(budgetChecker, timeout(1000).times(1)).release(eq(preDeductResult));
+    }
 }

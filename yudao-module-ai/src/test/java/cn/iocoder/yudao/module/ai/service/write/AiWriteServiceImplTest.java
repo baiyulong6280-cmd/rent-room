@@ -114,4 +114,22 @@ public class AiWriteServiceImplTest extends BaseMockitoUnitTest {
         verify(budgetChecker, timeout(1000).times(1)).release(eq(preDeductResult));
         verify(callLogService, never()).createCallLog(any());
     }
+
+    @Test
+    public void testGenerateWriteContent_errorPathShouldReleaseWhenUpdateFails() {
+        AiWriteGenerateReqVO reqVO = new AiWriteGenerateReqVO();
+        reqVO.setType(AiWriteTypeEnum.WRITING.getType());
+        reqVO.setPrompt("测试异常");
+        reqVO.setLength(1);
+        reqVO.setFormat(1);
+        reqVO.setTone(1);
+        reqVO.setLanguage(1);
+
+        when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.error(new RuntimeException("stream error")));
+        doThrow(new RuntimeException("db error")).when(writeMapper).updateById(any(AiWriteDO.class));
+
+        writeService.generateWriteContent(reqVO, 2L).subscribe();
+
+        verify(budgetChecker, timeout(1000).times(1)).release(eq(preDeductResult));
+    }
 }
