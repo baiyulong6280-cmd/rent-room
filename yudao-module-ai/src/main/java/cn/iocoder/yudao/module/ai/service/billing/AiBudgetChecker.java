@@ -148,7 +148,7 @@ public class AiBudgetChecker {
         }
         if (result != null && result == 2L) {
             // 记录租户级超限拦截事件
-            logBlockEvent(0L, periodStart, tenantLimit);
+            logBlockEvent(0L, tenantPeriodStart, tenantLimit);
             throw exception(BUDGET_EXCEEDED);
         }
 

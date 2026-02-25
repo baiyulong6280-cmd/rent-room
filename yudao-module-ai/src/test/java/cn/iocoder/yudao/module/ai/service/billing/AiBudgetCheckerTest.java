@@ -335,4 +335,36 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
         verify(budgetUsageService).addUsage(eq(100L), eq(periodStart), eq(8000L));
     }
 
+    @Test
+    public void testPreDeduct_tenantBudgetExceeded_shouldLogWithTenantPeriodStart() {
+        // 用户是 DAILY，租户是 MONTHLY，触发租户超限时应记录租户周期（月初）
+        AiBudgetConfigDO userDailyConfig = AiBudgetConfigDO.builder()
+                .userId(100L).periodType("DAILY").budgetAmount(10_000_000L)
+                .status(CommonStatusEnum.ENABLE.getStatus()).build();
+        AiBudgetConfigDO tenantMonthlyConfig = AiBudgetConfigDO.builder()
+                .userId(0L).periodType("MONTHLY").budgetAmount(50_000_000L)
+                .status(CommonStatusEnum.ENABLE.getStatus()).build();
+
+        lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
+        when(budgetConfigService.getBudgetConfig(eq(100L), eq(AiBudgetPeriodTypeEnum.MONTHLY.getType())))
+                .thenReturn(null);
+        when(budgetConfigService.getBudgetConfig(eq(100L), eq(AiBudgetPeriodTypeEnum.DAILY.getType())))
+                .thenReturn(userDailyConfig);
+        when(budgetConfigService.getBudgetConfig(eq(0L), eq(AiBudgetPeriodTypeEnum.MONTHLY.getType())))
+                .thenReturn(tenantMonthlyConfig);
+
+        lenient().when(stringRedisTemplate.hasKey(anyString())).thenReturn(true);
+        // Lua 脚本返回 2（租户预算不足）
+        lenient().when(stringRedisTemplate.execute(Mockito.<RedisScript<Long>>any(), anyList(),
+                any(String.class), any(String.class), any(String.class))).thenReturn(2L);
+
+        assertThrows(ServiceException.class, () -> budgetChecker.preDeduct(1L, 100L, 5000L));
+
+        LocalDateTime expectedTenantPeriodStart = LocalDateTime.now()
+                .withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0).withNano(0);
+        verify(budgetLogService).createBudgetLog(argThat(log ->
+                log.getUserId().equals(0L)
+                        && log.getPeriodStartTime().equals(expectedTenantPeriodStart)));
+    }
+
 }
