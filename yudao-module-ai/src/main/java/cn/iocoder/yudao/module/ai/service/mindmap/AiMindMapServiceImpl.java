@@ -96,53 +96,57 @@ public class AiMindMapServiceImpl implements AiMindMapService {
         Long tenantId = TenantContextHolder.getTenantId();
         AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
                 tenantId, userId, estimateCost(model));
+        try {
+            // 3. 插入思维导图信息
+            AiMindMapDO mindMapDO = BeanUtils.toBean(generateReqVO, AiMindMapDO.class, mindMap -> mindMap.setUserId(userId)
+                    .setPlatform(platform.getPlatform()).setModelId(model.getId()).setModel(model.getModel()));
+            mindMapMapper.insert(mindMapDO);
 
-        // 3. 插入思维导图信息
-        AiMindMapDO mindMapDO = BeanUtils.toBean(generateReqVO, AiMindMapDO.class, mindMap -> mindMap.setUserId(userId)
-                .setPlatform(platform.getPlatform()).setModelId(model.getId()).setModel(model.getModel()));
-        mindMapMapper.insert(mindMapDO);
+            // 4.1 构建 Prompt，并进行调用
+            Prompt prompt = buildPrompt(generateReqVO, model, systemMessage);
+            LocalDateTime requestTime = LocalDateTime.now();
+            Flux<ChatResponse> streamResponse = chatModel.stream(prompt);
 
-        // 4.1 构建 Prompt，并进行调用
-        Prompt prompt = buildPrompt(generateReqVO, model, systemMessage);
-        LocalDateTime requestTime = LocalDateTime.now();
-        Flux<ChatResponse> streamResponse = chatModel.stream(prompt);
-
-        // 3.3 流式返回
-        StringBuffer contentBuffer = new StringBuffer();
-        AtomicReference<ChatResponse> lastChunkRef = new AtomicReference<>();
-        return streamResponse.map(chunk -> {
-            lastChunkRef.set(chunk);
-            String newContent = chunk.getResult() != null ? chunk.getResult().getOutput().getText() : null;
-            newContent = StrUtil.nullToDefault(newContent, ""); // 避免 null 的 情况
-            contentBuffer.append(newContent);
-            // 响应结果
-            return success(newContent);
-        }).doOnComplete(() -> {
-            // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
-            TenantUtils.execute(tenantId, () -> {
-                mindMapMapper.updateById(new AiMindMapDO().setId(mindMapDO.getId()).setGeneratedContent(contentBuffer.toString()));
-                // 记录调用日志 + 预算结算
-                createCallLog(model, userId, mindMapDO.getId(), AiBizTypeEnum.MIND_MAP.getType(),
-                        requestTime, lastChunkRef.get(), AiCallStatusEnum.SUCCESS.getStatus(), null,
-                        preDeductResult);
-            });
-        }).doOnError(throwable -> {
-            log.error("[generateMindMap][generateReqVO({}) 发生异常]", generateReqVO, throwable);
-            // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
-            TenantUtils.execute(tenantId, () -> {
-                mindMapMapper.updateById(new AiMindMapDO().setId(mindMapDO.getId()).setErrorMessage(throwable.getMessage()));
-                // 记录调用日志（失败）
-                createCallLog(model, userId, mindMapDO.getId(), AiBizTypeEnum.MIND_MAP.getType(),
-                        requestTime, null, AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(), null);
-                // 释放预扣费
-                budgetChecker.release(preDeductResult);
-            });
-        }).doOnCancel(() -> {
-            log.info("[generateMindMap][generateReqVO({}) 取消请求]", generateReqVO);
-            // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
+            // 3.3 流式返回
+            StringBuffer contentBuffer = new StringBuffer();
+            AtomicReference<ChatResponse> lastChunkRef = new AtomicReference<>();
+            return streamResponse.map(chunk -> {
+                lastChunkRef.set(chunk);
+                String newContent = chunk.getResult() != null ? chunk.getResult().getOutput().getText() : null;
+                newContent = StrUtil.nullToDefault(newContent, ""); // 避免 null 的 情况
+                contentBuffer.append(newContent);
+                // 响应结果
+                return success(newContent);
+            }).doOnComplete(() -> {
+                // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
+                TenantUtils.execute(tenantId, () -> {
+                    mindMapMapper.updateById(new AiMindMapDO().setId(mindMapDO.getId()).setGeneratedContent(contentBuffer.toString()));
+                    // 记录调用日志 + 预算结算
+                    createCallLog(model, userId, mindMapDO.getId(), AiBizTypeEnum.MIND_MAP.getType(),
+                            requestTime, lastChunkRef.get(), AiCallStatusEnum.SUCCESS.getStatus(), null,
+                            preDeductResult);
+                });
+            }).doOnError(throwable -> {
+                log.error("[generateMindMap][generateReqVO({}) 发生异常]", generateReqVO, throwable);
+                // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
+                TenantUtils.execute(tenantId, () -> {
+                    mindMapMapper.updateById(new AiMindMapDO().setId(mindMapDO.getId()).setErrorMessage(throwable.getMessage()));
+                    // 记录调用日志（失败）
+                    createCallLog(model, userId, mindMapDO.getId(), AiBizTypeEnum.MIND_MAP.getType(),
+                            requestTime, null, AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(), null);
+                    // 释放预扣费
+                    budgetChecker.release(preDeductResult);
+                });
+            }).doOnCancel(() -> {
+                log.info("[generateMindMap][generateReqVO({}) 取消请求]", generateReqVO);
+                // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
+                TenantUtils.execute(tenantId, () -> budgetChecker.release(preDeductResult));
+            }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.WRITE_STREAM_ERROR)));
+        } catch (Exception e) {
+            // preDeduct 之后、Flux 回调挂钩之前发生异常时，需要主动释放预扣
             TenantUtils.execute(tenantId, () -> budgetChecker.release(preDeductResult));
-        }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.WRITE_STREAM_ERROR)));
-
+            throw e;
+        }
     }
 
     private void createCallLog(AiModelDO model, Long userId, Long bizId, String bizType,

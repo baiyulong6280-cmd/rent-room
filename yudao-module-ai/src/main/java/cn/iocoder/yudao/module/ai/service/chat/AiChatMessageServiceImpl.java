@@ -180,56 +180,65 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
         // 3. 预算预扣费（必须在落库之前，避免超限时留下脏数据）
         AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
                 TenantContextHolder.getTenantId(), userId, estimateCost(model));
-
-        // 4.1 插入 user 发送消息
-        AiChatMessageDO userMessage = createChatMessage(conversation.getId(), null, model,
-                userId, conversation.getRoleId(), MessageType.USER, sendReqVO.getContent(), sendReqVO.getUseContext(),
-                null, sendReqVO.getAttachmentUrls(), null);
-
-        // 4.2 插入 assistant 接收消息
-        AiChatMessageDO assistantMessage = createChatMessage(conversation.getId(), userMessage.getId(), model,
-                userId, conversation.getRoleId(), MessageType.ASSISTANT, "", sendReqVO.getUseContext(),
-                knowledgeSegments, null, webSearchResponse);
-
-        // 4.3 创建 chat 需要的 Prompt
-        Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
-        // 4.4 调用模型，记录调用日志
-        LocalDateTime requestTime = LocalDateTime.now();
-        ChatResponse chatResponse;
+        boolean budgetFinalized = false;
         try {
-            chatResponse = chatModel.call(prompt);
-        } catch (Exception e) {
-            // 释放预扣费
-            budgetChecker.release(preDeductResult);
-            // 失败时也记录调用日志
+            // 4.1 插入 user 发送消息
+            AiChatMessageDO userMessage = createChatMessage(conversation.getId(), null, model,
+                    userId, conversation.getRoleId(), MessageType.USER, sendReqVO.getContent(), sendReqVO.getUseContext(),
+                    null, sendReqVO.getAttachmentUrls(), null);
+
+            // 4.2 插入 assistant 接收消息
+            AiChatMessageDO assistantMessage = createChatMessage(conversation.getId(), userMessage.getId(), model,
+                    userId, conversation.getRoleId(), MessageType.ASSISTANT, "", sendReqVO.getUseContext(),
+                    knowledgeSegments, null, webSearchResponse);
+
+            // 4.3 创建 chat 需要的 Prompt
+            Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
+            // 4.4 调用模型，记录调用日志
+            LocalDateTime requestTime = LocalDateTime.now();
+            ChatResponse chatResponse;
+            try {
+                chatResponse = chatModel.call(prompt);
+            } catch (Exception e) {
+                // 释放预扣费
+                budgetChecker.release(preDeductResult);
+                budgetFinalized = true;
+                // 失败时也记录调用日志
+                createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
+                        requestTime, null, AiCallStatusEnum.FAIL.getStatus(), e.getMessage(),
+                        null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
+                throw e;
+            }
+            // 提取 usage 并记录成功日志
             createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
-                    requestTime, null, AiCallStatusEnum.FAIL.getStatus(), e.getMessage(),
-                    null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
+                    requestTime, chatResponse, AiCallStatusEnum.SUCCESS.getStatus(), null,
+                    null, null, null, null, null, null, preDeductResult);
+            budgetFinalized = true;
+
+            // 4.4 更新响应内容
+            String newContent = AiUtils.getChatResponseContent(chatResponse);
+            String newReasoningContent = AiUtils.getChatResponseReasoningContent(chatResponse);
+            chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
+                    .setContent(newContent).setReasoningContent(newReasoningContent));
+            // 4.5 响应结果
+            Map<Long, AiKnowledgeDocumentDO> documentMap = knowledgeDocumentService.getKnowledgeDocumentMap(
+                    convertSet(knowledgeSegments, AiKnowledgeSegmentSearchRespBO::getDocumentId));
+            List<AiChatMessageRespVO.KnowledgeSegment> segments = BeanUtils.toBean(knowledgeSegments,
+                    AiChatMessageRespVO.KnowledgeSegment.class, segment -> {
+                        AiKnowledgeDocumentDO document = documentMap.get(segment.getDocumentId());
+                        segment.setDocumentName(document != null ? document.getName() : null);
+                    });
+            return new AiChatMessageSendRespVO()
+                    .setSend(BeanUtils.toBean(userMessage, AiChatMessageSendRespVO.Message.class))
+                    .setReceive(BeanUtils.toBean(assistantMessage, AiChatMessageSendRespVO.Message.class)
+                            .setContent(newContent).setSegments(segments)
+                            .setWebSearchPages(webSearchResponse != null ? webSearchResponse.getLists() : null));
+        } catch (Exception e) {
+            if (!budgetFinalized) {
+                budgetChecker.release(preDeductResult);
+            }
             throw e;
         }
-        // 提取 usage 并记录成功日志
-        createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
-                requestTime, chatResponse, AiCallStatusEnum.SUCCESS.getStatus(), null,
-                null, null, null, null, null, null, preDeductResult);
-
-        // 4.4 更新响应内容
-        String newContent = AiUtils.getChatResponseContent(chatResponse);
-        String newReasoningContent = AiUtils.getChatResponseReasoningContent(chatResponse);
-        chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
-                .setContent(newContent).setReasoningContent(newReasoningContent));
-        // 4.5 响应结果
-        Map<Long, AiKnowledgeDocumentDO> documentMap = knowledgeDocumentService.getKnowledgeDocumentMap(
-                convertSet(knowledgeSegments, AiKnowledgeSegmentSearchRespBO::getDocumentId));
-        List<AiChatMessageRespVO.KnowledgeSegment> segments = BeanUtils.toBean(knowledgeSegments,
-                AiChatMessageRespVO.KnowledgeSegment.class, segment -> {
-                    AiKnowledgeDocumentDO document = documentMap.get(segment.getDocumentId());
-                    segment.setDocumentName(document != null ? document.getName() : null);
-                });
-        return new AiChatMessageSendRespVO()
-                .setSend(BeanUtils.toBean(userMessage, AiChatMessageSendRespVO.Message.class))
-                .setReceive(BeanUtils.toBean(assistantMessage, AiChatMessageSendRespVO.Message.class)
-                        .setContent(newContent).setSegments(segments)
-                        .setWebSearchPages(webSearchResponse != null ? webSearchResponse.getLists() : null));
     }
 
     @Override
@@ -259,113 +268,117 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
         Long tenantId = TenantContextHolder.getTenantId();
         AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
                 tenantId, userId, estimateCost(model));
+        try {
+            // 4.1 插入 user 发送消息
+            AiChatMessageDO userMessage = createChatMessage(conversation.getId(), null, model,
+                    userId, conversation.getRoleId(), MessageType.USER, sendReqVO.getContent(), sendReqVO.getUseContext(),
+                    null, sendReqVO.getAttachmentUrls(), null);
 
-        // 4.1 插入 user 发送消息
-        AiChatMessageDO userMessage = createChatMessage(conversation.getId(), null, model,
-                userId, conversation.getRoleId(), MessageType.USER, sendReqVO.getContent(), sendReqVO.getUseContext(),
-                null, sendReqVO.getAttachmentUrls(), null);
+            // 4.2 插入 assistant 接收消息
+            AiChatMessageDO assistantMessage = createChatMessage(conversation.getId(), userMessage.getId(), model,
+                    userId, conversation.getRoleId(), MessageType.ASSISTANT, "", sendReqVO.getUseContext(),
+                    knowledgeSegments, null, webSearchResponse);
 
-        // 4.2 插入 assistant 接收消息
-        AiChatMessageDO assistantMessage = createChatMessage(conversation.getId(), userMessage.getId(), model,
-                userId, conversation.getRoleId(), MessageType.ASSISTANT, "", sendReqVO.getUseContext(),
-                knowledgeSegments, null, webSearchResponse);
+            // 4.3 构建 Prompt，并进行调用
+            Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
+            LocalDateTime requestTime = LocalDateTime.now();
+            Flux<ChatResponse> streamResponse = chatModel.stream(prompt);
 
-        // 4.3 构建 Prompt，并进行调用
-        Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
-        LocalDateTime requestTime = LocalDateTime.now();
-        Flux<ChatResponse> streamResponse = chatModel.stream(prompt);
+            // 4.3 流式返回
+            StringBuffer contentBuffer = new StringBuffer();
+            StringBuffer reasoningContentBuffer = new StringBuffer();
+            AtomicReference<ChatResponse> lastChunkRef = new AtomicReference<>();
 
-        // 4.3 流式返回
-        StringBuffer contentBuffer = new StringBuffer();
-        StringBuffer reasoningContentBuffer = new StringBuffer();
-        AtomicReference<ChatResponse> lastChunkRef = new AtomicReference<>();
-
-        // 防止执行多次知识库和联网搜索
-        AtomicBoolean firstExecuteFlag = new AtomicBoolean(true);
-        AtomicReference<List<AiChatMessageRespVO.KnowledgeSegment>> cacheSegments = new AtomicReference<>();
-        AtomicReference<List<AiWebSearchResponse.WebPage>> cacheWebSearchPages = new AtomicReference<>();
-        return streamResponse.map(chunk -> {
-            // 持续更新最后一个 chunk，用于 doOnComplete 时提取 usage
-            lastChunkRef.set(chunk);
-            // 仅首次：返回知识库、联网搜索
-            if (StrUtil.isEmpty(contentBuffer)) {
-                if (firstExecuteFlag.compareAndSet(true, false)) { // CAS 操作，确保仅执行一次
-                    Map<Long, AiKnowledgeDocumentDO> documentMap = TenantUtils.execute(tenantId, () -> knowledgeDocumentService.getKnowledgeDocumentMap(
-                            convertSet(knowledgeSegments, AiKnowledgeSegmentSearchRespBO::getDocumentId)));
-                    cacheSegments.set(BeanUtils.toBean(knowledgeSegments, AiChatMessageRespVO.KnowledgeSegment.class, segment -> {
-                        AiKnowledgeDocumentDO document = documentMap.get(segment.getDocumentId());
-                        segment.setDocumentName(document != null ? document.getName() : null);
-                    }));
-                    if (webSearchResponse != null) {
-                        cacheWebSearchPages.set(webSearchResponse.getLists());
+            // 防止执行多次知识库和联网搜索
+            AtomicBoolean firstExecuteFlag = new AtomicBoolean(true);
+            AtomicReference<List<AiChatMessageRespVO.KnowledgeSegment>> cacheSegments = new AtomicReference<>();
+            AtomicReference<List<AiWebSearchResponse.WebPage>> cacheWebSearchPages = new AtomicReference<>();
+            return streamResponse.map(chunk -> {
+                // 持续更新最后一个 chunk，用于 doOnComplete 时提取 usage
+                lastChunkRef.set(chunk);
+                // 仅首次：返回知识库、联网搜索
+                if (StrUtil.isEmpty(contentBuffer)) {
+                    if (firstExecuteFlag.compareAndSet(true, false)) { // CAS 操作，确保仅执行一次
+                        Map<Long, AiKnowledgeDocumentDO> documentMap = TenantUtils.execute(tenantId, () -> knowledgeDocumentService.getKnowledgeDocumentMap(
+                                convertSet(knowledgeSegments, AiKnowledgeSegmentSearchRespBO::getDocumentId)));
+                        cacheSegments.set(BeanUtils.toBean(knowledgeSegments, AiChatMessageRespVO.KnowledgeSegment.class, segment -> {
+                            AiKnowledgeDocumentDO document = documentMap.get(segment.getDocumentId());
+                            segment.setDocumentName(document != null ? document.getName() : null);
+                        }));
+                        if (webSearchResponse != null) {
+                            cacheWebSearchPages.set(webSearchResponse.getLists());
+                        }
                     }
                 }
-            }
-            // 响应结果
-            String newContent = AiUtils.getChatResponseContent(chunk);
-            String newReasoningContent = AiUtils.getChatResponseReasoningContent(chunk);
-            if (StrUtil.isNotEmpty(newContent)) {
-                contentBuffer.append(newContent);
-            }
-            if (StrUtil.isNotEmpty(newReasoningContent)) {
-                reasoningContentBuffer.append(newReasoningContent);
-            }
-            return success(new AiChatMessageSendRespVO()
-                    .setSend(BeanUtils.toBean(userMessage, AiChatMessageSendRespVO.Message.class))
-                    .setReceive(BeanUtils.toBean(assistantMessage, AiChatMessageSendRespVO.Message.class)
-                            .setContent(StrUtil.nullToDefault(newContent, "")) // 避免 null 的 情况
-                            .setReasoningContent(StrUtil.nullToDefault(newReasoningContent, "")) // 避免 null 的 情况
-                            .setSegments(cacheSegments.get()).setWebSearchPages(cacheWebSearchPages.get()))); // 知识库 + 联网搜索
-        }).doOnComplete(() -> {
-            // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
-            TenantUtils.execute(tenantId, () -> {
-                chatMessageMapper.updateById(
-                        new AiChatMessageDO().setId(assistantMessage.getId()).setContent(contentBuffer.toString())
-                                .setReasoningContent(reasoningContentBuffer.toString()));
-                // 记录调用日志
-                createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
-                        requestTime, lastChunkRef.get(), AiCallStatusEnum.SUCCESS.getStatus(), null,
-                        null, null, null, null, null, null, preDeductResult);
-            });
-        }).doOnError(throwable -> {
-            log.error("[sendChatMessageStream][userId({}) sendReqVO({}) 发生异常]", userId, sendReqVO, throwable);
-            // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
-            TenantUtils.execute(tenantId, () -> {
-                // 如果有内容，则更新内容
-                if (StrUtil.isNotEmpty(contentBuffer)) {
-                    chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
-                            .setContent(contentBuffer.toString()).setReasoningContent(reasoningContentBuffer.toString()));
-                } else {
-                    // 否则，则进行删除
-                    chatMessageMapper.deleteById(assistantMessage.getId());
+                // 响应结果
+                String newContent = AiUtils.getChatResponseContent(chunk);
+                String newReasoningContent = AiUtils.getChatResponseReasoningContent(chunk);
+                if (StrUtil.isNotEmpty(newContent)) {
+                    contentBuffer.append(newContent);
                 }
-                // 记录调用日志（失败）
-                createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
-                        requestTime, null, AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(),
-                        null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
-                // 释放预扣费
-                budgetChecker.release(preDeductResult);
-            });
-        }).doOnCancel(() -> {
-            log.info("[sendChatMessageStream][userId({}) sendReqVO({}) 取消请求]", userId, sendReqVO);
-            // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
-            TenantUtils.execute(tenantId, () -> {
-                // 如果有内容，则更新内容
-                if (StrUtil.isNotEmpty(contentBuffer)) {
-                    chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
-                            .setContent(contentBuffer.toString()).setReasoningContent(reasoningContentBuffer.toString()));
-                } else {
-                    // 否则，则进行删除
-                    chatMessageMapper.deleteById(assistantMessage.getId());
+                if (StrUtil.isNotEmpty(newReasoningContent)) {
+                    reasoningContentBuffer.append(newReasoningContent);
                 }
-                // 记录调用日志（取消）
-                createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
-                        requestTime, null, AiCallStatusEnum.CANCEL.getStatus(), null,
-                        null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
-                // 释放预扣费
-                budgetChecker.release(preDeductResult);
-            });
-        }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.CHAT_STREAM_ERROR)));
+                return success(new AiChatMessageSendRespVO()
+                        .setSend(BeanUtils.toBean(userMessage, AiChatMessageSendRespVO.Message.class))
+                        .setReceive(BeanUtils.toBean(assistantMessage, AiChatMessageSendRespVO.Message.class)
+                                .setContent(StrUtil.nullToDefault(newContent, "")) // 避免 null 的 情况
+                                .setReasoningContent(StrUtil.nullToDefault(newReasoningContent, "")) // 避免 null 的 情况
+                                .setSegments(cacheSegments.get()).setWebSearchPages(cacheWebSearchPages.get()))); // 知识库 + 联网搜索
+            }).doOnComplete(() -> {
+                // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
+                TenantUtils.execute(tenantId, () -> {
+                    chatMessageMapper.updateById(
+                            new AiChatMessageDO().setId(assistantMessage.getId()).setContent(contentBuffer.toString())
+                                    .setReasoningContent(reasoningContentBuffer.toString()));
+                    // 记录调用日志
+                    createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
+                            requestTime, lastChunkRef.get(), AiCallStatusEnum.SUCCESS.getStatus(), null,
+                            null, null, null, null, null, null, preDeductResult);
+                });
+            }).doOnError(throwable -> {
+                log.error("[sendChatMessageStream][userId({}) sendReqVO({}) 发生异常]", userId, sendReqVO, throwable);
+                // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
+                TenantUtils.execute(tenantId, () -> {
+                    // 如果有内容，则更新内容
+                    if (StrUtil.isNotEmpty(contentBuffer)) {
+                        chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
+                                .setContent(contentBuffer.toString()).setReasoningContent(reasoningContentBuffer.toString()));
+                    } else {
+                        // 否则，则进行删除
+                        chatMessageMapper.deleteById(assistantMessage.getId());
+                    }
+                    // 记录调用日志（失败）
+                    createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
+                            requestTime, null, AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(),
+                            null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
+                    // 释放预扣费
+                    budgetChecker.release(preDeductResult);
+                });
+            }).doOnCancel(() -> {
+                log.info("[sendChatMessageStream][userId({}) sendReqVO({}) 取消请求]", userId, sendReqVO);
+                // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
+                TenantUtils.execute(tenantId, () -> {
+                    // 如果有内容，则更新内容
+                    if (StrUtil.isNotEmpty(contentBuffer)) {
+                        chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
+                                .setContent(contentBuffer.toString()).setReasoningContent(reasoningContentBuffer.toString()));
+                    } else {
+                        // 否则，则进行删除
+                        chatMessageMapper.deleteById(assistantMessage.getId());
+                    }
+                    // 记录调用日志（取消）
+                    createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
+                            requestTime, null, AiCallStatusEnum.CANCEL.getStatus(), null,
+                            null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
+                    // 释放预扣费
+                    budgetChecker.release(preDeductResult);
+                });
+            }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.CHAT_STREAM_ERROR)));
+        } catch (Exception e) {
+            budgetChecker.release(preDeductResult);
+            throw e;
+        }
     }
 
     /**
