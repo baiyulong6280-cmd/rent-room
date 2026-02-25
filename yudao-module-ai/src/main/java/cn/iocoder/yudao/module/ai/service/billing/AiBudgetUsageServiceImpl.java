@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.ai.service.billing;
 
+import cn.iocoder.yudao.framework.tenant.core.context.TenantContextHolder;
 import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiBudgetUsageDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.billing.AiBudgetUsageMapper;
 import jakarta.annotation.Resource;
@@ -39,8 +40,9 @@ public class AiBudgetUsageServiceImpl implements AiBudgetUsageService {
 
     @Override
     public void addUsage(Long userId, LocalDateTime periodStartTime, long deltaAmount) {
+        Long tenantId = TenantContextHolder.getRequiredTenantId();
         // 1. 尝试 SQL 原子累加（UPDATE ... SET used_amount = used_amount + delta）
-        int updated = budgetUsageMapper.incrementUsedAmount(userId, periodStartTime, deltaAmount);
+        int updated = budgetUsageMapper.incrementUsedAmount(userId, periodStartTime, deltaAmount, tenantId);
         if (updated > 0) {
             return;
         }
@@ -57,7 +59,7 @@ public class AiBudgetUsageServiceImpl implements AiBudgetUsageService {
         } catch (DuplicateKeyException e) {
             // 并发插入冲突，重试原子累加
             log.debug("[addUsage][userId({}) periodStartTime({}) 并发插入冲突，重试累加]", userId, periodStartTime);
-            budgetUsageMapper.incrementUsedAmount(userId, periodStartTime, deltaAmount);
+            budgetUsageMapper.incrementUsedAmount(userId, periodStartTime, deltaAmount, tenantId);
         }
     }
 
