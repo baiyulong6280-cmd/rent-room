@@ -1,0 +1,103 @@
+package cn.iocoder.yudao.module.ai.service.mindmap;
+
+import cn.iocoder.yudao.framework.common.pojo.CommonResult;
+import cn.iocoder.yudao.framework.tenant.core.context.TenantContextHolder;
+import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
+import cn.iocoder.yudao.module.ai.controller.admin.mindmap.vo.AiMindMapGenerateReqVO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.mindmap.AiMindMapDO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
+import cn.iocoder.yudao.module.ai.dal.mysql.mindmap.AiMindMapMapper;
+import cn.iocoder.yudao.module.ai.enums.model.AiModelTypeEnum;
+import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
+import cn.iocoder.yudao.module.ai.service.billing.AiBudgetChecker;
+import cn.iocoder.yudao.module.ai.service.billing.AiModelCallLogService;
+import cn.iocoder.yudao.module.ai.service.billing.AiModelPricingService;
+import cn.iocoder.yudao.module.ai.service.model.AiChatRoleService;
+import cn.iocoder.yudao.module.ai.service.model.AiModelService;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.Prompt;
+import reactor.core.Disposable;
+import reactor.core.publisher.Flux;
+
+import java.time.LocalDateTime;
+import java.util.Collections;
+
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+/**
+ * {@link AiMindMapServiceImpl} 的单元测试
+ */
+public class AiMindMapServiceImplTest extends BaseMockitoUnitTest {
+
+    @InjectMocks
+    private AiMindMapServiceImpl mindMapService;
+
+    @Mock
+    private AiModelService modalService;
+    @Mock
+    private AiChatRoleService chatRoleService;
+    @Mock
+    private AiMindMapMapper mindMapMapper;
+    @Mock
+    private AiModelCallLogService callLogService;
+    @Mock
+    private AiBudgetChecker budgetChecker;
+    @Mock
+    private AiModelPricingService modelPricingService;
+
+    @Mock
+    private ChatModel chatModel;
+
+    private AiModelDO model;
+    private AiBudgetChecker.PreDeductResult preDeductResult;
+
+    @BeforeEach
+    void setUp() {
+        TenantContextHolder.setTenantId(1L);
+        model = AiModelDO.builder()
+                .id(1L)
+                .model("gpt-4o-mini")
+                .platform(AiPlatformEnum.OPENAI.getPlatform())
+                .type(AiModelTypeEnum.CHAT.getType())
+                .temperature(0.7)
+                .maxTokens(1024)
+                .build();
+        preDeductResult = new AiBudgetChecker.PreDeductResult(1L, 2L, 100L, LocalDateTime.now());
+
+        lenient().when(chatRoleService.getChatRoleListByName(anyString())).thenReturn(Collections.emptyList());
+        lenient().when(modalService.getRequiredDefaultModel(eq(AiModelTypeEnum.CHAT.getType()))).thenReturn(model);
+        lenient().when(modalService.getChatModel(eq(1L))).thenReturn(chatModel);
+        lenient().when(budgetChecker.preDeduct(eq(1L), eq(2L), anyLong())).thenReturn(preDeductResult);
+        lenient().when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.never());
+        lenient().doAnswer(invocation -> {
+            AiMindMapDO mindMapDO = invocation.getArgument(0);
+            mindMapDO.setId(88L);
+            return 1;
+        }).when(mindMapMapper).insert(any(AiMindMapDO.class));
+    }
+
+    @AfterEach
+    void tearDown() {
+        TenantContextHolder.clear();
+    }
+
+    @Test
+    public void testGenerateMindMap_cancelShouldReleasePreDeduct() {
+        AiMindMapGenerateReqVO reqVO = new AiMindMapGenerateReqVO();
+        reqVO.setPrompt("测试取消");
+
+        Flux<CommonResult<String>> flux = mindMapService.generateMindMap(reqVO, 2L);
+        Disposable disposable = flux.subscribe();
+        disposable.dispose();
+
+        verify(budgetChecker, timeout(1000).times(1)).release(eq(preDeductResult));
+        verify(callLogService, never()).createCallLog(any());
+    }
+}
+
