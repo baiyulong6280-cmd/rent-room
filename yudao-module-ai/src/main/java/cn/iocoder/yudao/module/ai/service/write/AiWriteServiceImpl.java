@@ -96,17 +96,18 @@ public class AiWriteServiceImpl implements AiWriteService {
         AiPlatformEnum platform = AiPlatformEnum.validatePlatform(model.getPlatform());
         StreamingChatModel chatModel = modalService.getChatModel(model.getId());
 
-        // 2. 插入写作信息
+        // 2. 预算预扣费（必须在落库之前，避免超限时留下脏数据）
+        Long tenantId = TenantContextHolder.getTenantId();
+        AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
+                tenantId, userId, estimateCost(model));
+
+        // 3. 插入写作信息
         AiWriteDO writeDO = BeanUtils.toBean(generateReqVO, AiWriteDO.class, write -> write.setUserId(userId)
                         .setPlatform(platform.getPlatform()).setModelId(model.getId()).setModel(model.getModel()));
         writeMapper.insert(writeDO);
 
-        // 3.1 构建 Prompt，并进行调用
+        // 4.1 构建 Prompt，并进行调用
         Prompt prompt = buildPrompt(generateReqVO, model, systemMessage);
-        // 3.2 预算预扣费
-        Long tenantId = TenantContextHolder.getTenantId();
-        AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
-                tenantId, userId, estimateCost(model));
         LocalDateTime requestTime = LocalDateTime.now();
         Flux<ChatResponse> streamResponse = chatModel.stream(prompt);
 
