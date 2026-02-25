@@ -134,12 +134,15 @@ public class AiWriteServiceImpl implements AiWriteService {
                 log.error("[generateWriteContent][generateReqVO({}) 发生异常]", generateReqVO, throwable);
                 // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
                 TenantUtils.execute(tenantId, () -> {
-                    writeMapper.updateById(new AiWriteDO().setId(writeDO.getId()).setErrorMessage(throwable.getMessage()));
-                    // 记录调用日志（失败）
-                    createCallLog(model, userId, writeDO.getId(), AiBizTypeEnum.WRITE.getType(),
-                            requestTime, null, AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(), null);
-                    // 释放预扣费
-                    budgetChecker.release(preDeductResult);
+                    try {
+                        writeMapper.updateById(new AiWriteDO().setId(writeDO.getId()).setErrorMessage(throwable.getMessage()));
+                        // 记录调用日志（失败）
+                        createCallLog(model, userId, writeDO.getId(), AiBizTypeEnum.WRITE.getType(),
+                                requestTime, null, AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(), null);
+                    } finally {
+                        // 无论中间步骤是否异常，都必须释放预扣费
+                        budgetChecker.release(preDeductResult);
+                    }
                 });
             }).doOnCancel(() -> {
                 log.info("[generateWriteContent][generateReqVO({}) 取消请求]", generateReqVO);

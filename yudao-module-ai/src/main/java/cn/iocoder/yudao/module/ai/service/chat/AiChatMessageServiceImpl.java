@@ -340,39 +340,45 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 log.error("[sendChatMessageStream][userId({}) sendReqVO({}) 发生异常]", userId, sendReqVO, throwable);
                 // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
                 TenantUtils.execute(tenantId, () -> {
-                    // 如果有内容，则更新内容
-                    if (StrUtil.isNotEmpty(contentBuffer)) {
-                        chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
-                                .setContent(contentBuffer.toString()).setReasoningContent(reasoningContentBuffer.toString()));
-                    } else {
-                        // 否则，则进行删除
-                        chatMessageMapper.deleteById(assistantMessage.getId());
+                    try {
+                        // 如果有内容，则更新内容
+                        if (StrUtil.isNotEmpty(contentBuffer)) {
+                            chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
+                                    .setContent(contentBuffer.toString()).setReasoningContent(reasoningContentBuffer.toString()));
+                        } else {
+                            // 否则，则进行删除
+                            chatMessageMapper.deleteById(assistantMessage.getId());
+                        }
+                        // 记录调用日志（失败）
+                        createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
+                                requestTime, null, AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(),
+                                null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
+                    } finally {
+                        // 无论中间步骤是否异常，都必须释放预扣费
+                        budgetChecker.release(preDeductResult);
                     }
-                    // 记录调用日志（失败）
-                    createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
-                            requestTime, null, AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(),
-                            null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
-                    // 释放预扣费
-                    budgetChecker.release(preDeductResult);
                 });
             }).doOnCancel(() -> {
                 log.info("[sendChatMessageStream][userId({}) sendReqVO({}) 取消请求]", userId, sendReqVO);
                 // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
                 TenantUtils.execute(tenantId, () -> {
-                    // 如果有内容，则更新内容
-                    if (StrUtil.isNotEmpty(contentBuffer)) {
-                        chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
-                                .setContent(contentBuffer.toString()).setReasoningContent(reasoningContentBuffer.toString()));
-                    } else {
-                        // 否则，则进行删除
-                        chatMessageMapper.deleteById(assistantMessage.getId());
+                    try {
+                        // 如果有内容，则更新内容
+                        if (StrUtil.isNotEmpty(contentBuffer)) {
+                            chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
+                                    .setContent(contentBuffer.toString()).setReasoningContent(reasoningContentBuffer.toString()));
+                        } else {
+                            // 否则，则进行删除
+                            chatMessageMapper.deleteById(assistantMessage.getId());
+                        }
+                        // 记录调用日志（取消）
+                        createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
+                                requestTime, null, AiCallStatusEnum.CANCEL.getStatus(), null,
+                                null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
+                    } finally {
+                        // 无论中间步骤是否异常，都必须释放预扣费
+                        budgetChecker.release(preDeductResult);
                     }
-                    // 记录调用日志（取消）
-                    createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
-                            requestTime, null, AiCallStatusEnum.CANCEL.getStatus(), null,
-                            null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
-                    // 释放预扣费
-                    budgetChecker.release(preDeductResult);
                 });
             }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.CHAT_STREAM_ERROR)));
         } catch (Exception e) {
