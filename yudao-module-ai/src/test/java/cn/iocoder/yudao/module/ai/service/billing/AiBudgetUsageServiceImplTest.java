@@ -1,9 +1,11 @@
 package cn.iocoder.yudao.module.ai.service.billing;
 
+import cn.iocoder.yudao.framework.tenant.core.context.TenantContextHolder;
 import cn.iocoder.yudao.framework.test.core.ut.BaseDbUnitTest;
 import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiBudgetUsageDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.billing.AiBudgetUsageMapper;
 import jakarta.annotation.Resource;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Import;
 
@@ -24,6 +26,12 @@ public class AiBudgetUsageServiceImplTest extends BaseDbUnitTest {
     private AiBudgetUsageMapper budgetUsageMapper;
 
     private static final LocalDateTime PERIOD_START = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
+
+    @BeforeEach
+    public void setUp() {
+        // 注意：BaseDbUnitTest 不加载租户拦截器，insert 时 tenant_id 取 H2 列默认值 0
+        TenantContextHolder.setTenantId(0L);
+    }
 
     @Test
     public void testAddUsage_firstTime() {
