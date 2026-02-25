@@ -118,7 +118,7 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
         lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
 
         LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
-        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 10000L, periodStart);
+        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 10000L, periodStart, periodStart);
 
         budgetChecker.settle(preDeduct, 6000L);
 
@@ -135,7 +135,7 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
         lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
 
         LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
-        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 5000L, periodStart);
+        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 5000L, periodStart, periodStart);
 
         budgetChecker.settle(preDeduct, 0L);
 
@@ -150,7 +150,7 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
     @Test
     public void testRelease_zeroAmount() {
         LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
-        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 0, periodStart);
+        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 0, periodStart, periodStart);
 
         budgetChecker.release(preDeduct);
 
@@ -161,7 +161,7 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
     @Test
     public void testRelease_positiveAmount() {
         LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
-        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 8000L, periodStart);
+        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 8000L, periodStart, periodStart);
 
         budgetChecker.release(preDeduct);
 
@@ -186,7 +186,7 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
         when(budgetUsageService.getUsage(eq(100L), any())).thenReturn(usage);
 
         LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
-        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 10000L, periodStart);
+        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 10000L, periodStart, periodStart);
 
         budgetChecker.settle(preDeduct, 10000L);
 
@@ -212,7 +212,7 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
         when(budgetUsageService.getUsage(eq(100L), any())).thenReturn(usage);
 
         LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
-        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 10000L, periodStart);
+        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 10000L, periodStart, periodStart);
 
         budgetChecker.settle(preDeduct, 10000L);
 
@@ -236,7 +236,7 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
         when(budgetUsageService.getUsage(eq(100L), any())).thenReturn(usage);
 
         LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
-        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 25000L, periodStart);
+        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 25000L, periodStart, periodStart);
 
         budgetChecker.settle(preDeduct, 25000L);
 
@@ -251,7 +251,7 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
         lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
 
         LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
-        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 5000L, periodStart);
+        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 5000L, periodStart, periodStart);
 
         budgetChecker.settle(preDeduct, 5000L);
 
@@ -271,7 +271,7 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
         lenient().when(budgetConfigService.getBudgetConfig(eq(0L), anyString())).thenReturn(null);
 
         LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
-        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 5000L, periodStart);
+        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 5000L, periodStart, periodStart);
 
         budgetChecker.settle(preDeduct, 5000L);
 
@@ -325,7 +325,7 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
         lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
 
         LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
-        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 5000L, periodStart);
+        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 5000L, periodStart, periodStart);
 
         budgetChecker.settle(preDeduct, 8000L);
 
@@ -333,6 +333,34 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
         verify(valueOperations, atLeastOnce()).increment(contains(":100:"), eq(3000L));
         // DB 落库
         verify(budgetUsageService).addUsage(eq(100L), eq(periodStart), eq(8000L));
+    }
+
+    @Test
+    public void testSettle_shouldUseTenantPeriodStartFromPreDeductResult() {
+        lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
+
+        LocalDateTime userPeriodStart = LocalDateTime.of(2026, 2, 25, 0, 0, 0);
+        LocalDateTime tenantPeriodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
+        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(
+                1L, 100L, 5000L, userPeriodStart, tenantPeriodStart);
+
+        budgetChecker.settle(preDeduct, 7000L);
+
+        // delta = 7000 - 5000 = 2000，应修正到预扣时的租户周期 key（20260201），不能重算当前周期
+        verify(valueOperations).increment(eq("ai:budget:1:0:20260201"), eq(2000L));
+    }
+
+    @Test
+    public void testRelease_shouldUseTenantPeriodStartFromPreDeductResult() {
+        LocalDateTime userPeriodStart = LocalDateTime.of(2026, 2, 25, 0, 0, 0);
+        LocalDateTime tenantPeriodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
+        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(
+                1L, 100L, 8000L, userPeriodStart, tenantPeriodStart);
+
+        budgetChecker.release(preDeduct);
+
+        // 释放应回写预扣时的租户周期 key（20260201），不能重算当前周期
+        verify(valueOperations).increment(eq("ai:budget:1:0:20260201"), eq(-8000L));
     }
 
     @Test

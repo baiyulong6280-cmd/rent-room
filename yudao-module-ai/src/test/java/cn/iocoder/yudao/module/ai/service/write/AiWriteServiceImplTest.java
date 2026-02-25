@@ -75,7 +75,8 @@ public class AiWriteServiceImplTest extends BaseMockitoUnitTest {
                 .temperature(0.7)
                 .maxTokens(1024)
                 .build();
-        preDeductResult = new AiBudgetChecker.PreDeductResult(1L, 2L, 100L, LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        preDeductResult = new AiBudgetChecker.PreDeductResult(1L, 2L, 100L, now, now);
 
         lenient().when(chatRoleService.getChatRoleListByName(anyString())).thenReturn(Collections.emptyList());
         lenient().when(modalService.getRequiredDefaultModel(eq(AiModelTypeEnum.CHAT.getType()))).thenReturn(model);
