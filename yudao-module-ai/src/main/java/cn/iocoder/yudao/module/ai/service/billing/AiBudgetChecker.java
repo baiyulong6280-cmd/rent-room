@@ -347,17 +347,18 @@ public class AiBudgetChecker {
     }
 
     /**
-     * 获取用户启用的预算配置，优先 MONTHLY，没有则查 DAILY
+     * 获取用户启用的预算配置，优先 MONTHLY，没有或禁用则查 DAILY
      */
     private AiBudgetConfigDO getEnabledBudgetConfig(Long userId) {
         AiBudgetConfigDO config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.MONTHLY.getType());
-        if (config == null) {
-            config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.DAILY.getType());
+        if (config != null && CommonStatusEnum.ENABLE.getStatus().equals(config.getStatus())) {
+            return config;
         }
-        if (config == null || !CommonStatusEnum.ENABLE.getStatus().equals(config.getStatus())) {
-            return null;
+        config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.DAILY.getType());
+        if (config != null && CommonStatusEnum.ENABLE.getStatus().equals(config.getStatus())) {
+            return config;
         }
-        return config;
+        return null;
     }
 
     /**
