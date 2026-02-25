@@ -145,6 +145,7 @@ public class AiMindMapServiceImpl implements AiMindMapService {
                                LocalDateTime requestTime, ChatResponse chatResponse,
                                String status, String errorMessage,
                                AiBudgetChecker.PreDeductResult preDeductResult) {
+        AiModelCallLogDO callLog = null;
         try {
             LocalDateTime responseTime = LocalDateTime.now();
             Integer promptTokens = null;
@@ -162,7 +163,7 @@ public class AiMindMapServiceImpl implements AiMindMapService {
             if (errorMessage != null && errorMessage.length() > 1024) {
                 errorMessage = errorMessage.substring(0, 1024);
             }
-            AiModelCallLogDO callLog = AiModelCallLogDO.builder()
+            callLog = AiModelCallLogDO.builder()
                     .userId(userId)
                     .platform(model.getPlatform())
                     .modelId(model.getId())
@@ -181,13 +182,20 @@ public class AiMindMapServiceImpl implements AiMindMapService {
                     .tokenSource(tokenSource)
                     .build();
             callLogService.createCallLog(callLog);
-            // 预算结算
-            if (preDeductResult != null) {
-                long actualCost = callLog.getCostAmount() != null ? callLog.getCostAmount() : 0L;
-                budgetChecker.settle(preDeductResult, actualCost);
-            }
         } catch (Exception e) {
+            // 调用日志记录失败不应影响主流程和预算结算
             log.error("[createCallLog][userId({}) bizId({}) 记录调用日志失败]", userId, bizId, e);
+        } finally {
+            // 预算结算：无论日志写入是否成功，都必须结算/释放预扣费，避免 Redis 预扣金额悬挂
+            if (preDeductResult != null) {
+                try {
+                    long actualCost = callLog != null && callLog.getCostAmount() != null ? callLog.getCostAmount() : 0L;
+                    budgetChecker.settle(preDeductResult, actualCost);
+                } catch (Exception e) {
+                    log.error("[createCallLog][userId({}) bizId({}) 预算结算失败，释放预扣费]", userId, bizId, e);
+                    budgetChecker.release(preDeductResult);
+                }
+            }
         }
     }
 
