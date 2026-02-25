@@ -177,21 +177,22 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 webSearchClient.search(new AiWebSearchRequest().setQuery(sendReqVO.getContent())
                         .setSummary(true).setCount(WEB_SEARCH_COUNT)) : null;
 
-        // 3. 插入 user 发送消息
+        // 3. 预算预扣费（必须在落库之前，避免超限时留下脏数据）
+        AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
+                TenantContextHolder.getTenantId(), userId, estimateCost(model));
+
+        // 4.1 插入 user 发送消息
         AiChatMessageDO userMessage = createChatMessage(conversation.getId(), null, model,
                 userId, conversation.getRoleId(), MessageType.USER, sendReqVO.getContent(), sendReqVO.getUseContext(),
                 null, sendReqVO.getAttachmentUrls(), null);
 
-        // 4.1 插入 assistant 接收消息
+        // 4.2 插入 assistant 接收消息
         AiChatMessageDO assistantMessage = createChatMessage(conversation.getId(), userMessage.getId(), model,
                 userId, conversation.getRoleId(), MessageType.ASSISTANT, "", sendReqVO.getUseContext(),
                 knowledgeSegments, null, webSearchResponse);
 
-        // 4.2 创建 chat 需要的 Prompt
+        // 4.3 创建 chat 需要的 Prompt
         Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
-        // 4.3 预算预扣费
-        AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
-                TenantContextHolder.getTenantId(), userId, estimateCost(model));
         // 4.4 调用模型，记录调用日志
         LocalDateTime requestTime = LocalDateTime.now();
         ChatResponse chatResponse;
@@ -254,22 +255,23 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 webSearchClient.search(new AiWebSearchRequest().setQuery(sendReqVO.getContent())
                         .setSummary(true).setCount(WEB_SEARCH_COUNT)) : null;
 
-        // 3. 插入 user 发送消息
+        // 3. 预算预扣费（必须在落库之前，避免超限时留下脏数据）
+        Long tenantId = TenantContextHolder.getTenantId();
+        AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
+                tenantId, userId, estimateCost(model));
+
+        // 4.1 插入 user 发送消息
         AiChatMessageDO userMessage = createChatMessage(conversation.getId(), null, model,
                 userId, conversation.getRoleId(), MessageType.USER, sendReqVO.getContent(), sendReqVO.getUseContext(),
                 null, sendReqVO.getAttachmentUrls(), null);
 
-        // 4.1 插入 assistant 接收消息
+        // 4.2 插入 assistant 接收消息
         AiChatMessageDO assistantMessage = createChatMessage(conversation.getId(), userMessage.getId(), model,
                 userId, conversation.getRoleId(), MessageType.ASSISTANT, "", sendReqVO.getUseContext(),
                 knowledgeSegments, null, webSearchResponse);
 
-        // 4.2 构建 Prompt，并进行调用
+        // 4.3 构建 Prompt，并进行调用
         Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
-        // 4.3 预算预扣费
-        Long tenantId = TenantContextHolder.getTenantId();
-        AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
-                tenantId, userId, estimateCost(model));
         LocalDateTime requestTime = LocalDateTime.now();
         Flux<ChatResponse> streamResponse = chatModel.stream(prompt);
 
