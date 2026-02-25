@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.BUDGET_CONFIG_DUPLICATE;
 import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.BUDGET_CONFIG_NOT_EXISTS;
 
 /**
@@ -26,6 +27,8 @@ public class AiBudgetConfigServiceImpl implements AiBudgetConfigService {
 
     @Override
     public Long createBudgetConfig(AiBudgetConfigSaveReqVO createReqVO) {
+        // 校验唯一性：同租户同用户同周期类型只能有一条配置
+        validateBudgetConfigUnique(null, createReqVO.getUserId(), createReqVO.getPeriodType());
         AiBudgetConfigDO config = new AiBudgetConfigDO();
         config.setUserId(createReqVO.getUserId());
         config.setPeriodType(createReqVO.getPeriodType());
@@ -40,6 +43,8 @@ public class AiBudgetConfigServiceImpl implements AiBudgetConfigService {
     @Override
     public void updateBudgetConfig(AiBudgetConfigSaveReqVO updateReqVO) {
         validateBudgetConfigExists(updateReqVO.getId());
+        // 校验唯一性：排除自身
+        validateBudgetConfigUnique(updateReqVO.getId(), updateReqVO.getUserId(), updateReqVO.getPeriodType());
         AiBudgetConfigDO updateObj = new AiBudgetConfigDO();
         updateObj.setId(updateReqVO.getId());
         updateObj.setUserId(updateReqVO.getUserId());
@@ -59,6 +64,13 @@ public class AiBudgetConfigServiceImpl implements AiBudgetConfigService {
     private void validateBudgetConfigExists(Long id) {
         if (budgetConfigMapper.selectById(id) == null) {
             throw exception(BUDGET_CONFIG_NOT_EXISTS);
+        }
+    }
+
+    private void validateBudgetConfigUnique(Long excludeId, Long userId, String periodType) {
+        AiBudgetConfigDO existing = budgetConfigMapper.selectByUserAndPeriod(userId, periodType);
+        if (existing != null && !existing.getId().equals(excludeId)) {
+            throw exception(BUDGET_CONFIG_DUPLICATE);
         }
     }
 

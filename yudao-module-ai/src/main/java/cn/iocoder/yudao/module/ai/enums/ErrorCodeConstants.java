@@ -68,6 +68,7 @@ public interface ErrorCodeConstants {
     // ========== AI 计费 1-040-012-000 ==========
     ErrorCode MODEL_PRICING_NOT_EXISTS = new ErrorCode(1_040_012_000, "模型计费配置不存在");
     ErrorCode BUDGET_CONFIG_NOT_EXISTS = new ErrorCode(1_040_012_100, "预算配置不存在");
+    ErrorCode BUDGET_CONFIG_DUPLICATE = new ErrorCode(1_040_012_101, "该用户在此周期类型下已存在预算配置");
     ErrorCode BUDGET_EXCEEDED = new ErrorCode(1_040_012_200, "预算额度已用尽，请联系管理员调整预算");
 
 }

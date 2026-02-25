@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS "ai_budget_config" (
     "update_time" datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "deleted" bit NOT NULL DEFAULT FALSE,
     "tenant_id" bigint NOT NULL DEFAULT 0,
-    PRIMARY KEY ("id")
+    PRIMARY KEY ("id"),
+    UNIQUE KEY "uk_budget_cfg_tenant_user_period" ("tenant_id", "user_id", "period_type")
 );
 
 CREATE TABLE IF NOT EXISTS "ai_budget_usage" (
