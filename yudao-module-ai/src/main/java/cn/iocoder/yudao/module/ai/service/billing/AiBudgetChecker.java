@@ -110,7 +110,8 @@ public class AiBudgetChecker {
      */
     public PreDeductResult preDeduct(Long tenantId, Long userId, long estimatedCost) {
         if (estimatedCost <= 0) {
-            return new PreDeductResult(tenantId, userId, 0, getCurrentPeriodStart(userId));
+            return new PreDeductResult(tenantId, userId, 0,
+                    getCurrentPeriodStart(userId), getCurrentPeriodStart(0L));
         }
 
         LocalDateTime periodStart = getCurrentPeriodStart(userId);
@@ -152,7 +153,7 @@ public class AiBudgetChecker {
             throw exception(BUDGET_EXCEEDED);
         }
 
-        return new PreDeductResult(tenantId, userId, estimatedCost, periodStart);
+        return new PreDeductResult(tenantId, userId, estimatedCost, periodStart, tenantPeriodStart);
     }
 
     /**
@@ -171,8 +172,7 @@ public class AiBudgetChecker {
         String periodStr = preDeductResult.periodStart().format(PERIOD_FORMAT);
         String userKey = buildKey(preDeductResult.tenantId(), preDeductResult.userId(), periodStr);
 
-        // 租户维度的 periodStart 可能与用户维度不同（如用户 DAILY、租户 MONTHLY）
-        LocalDateTime tenantPeriodStart = getCurrentPeriodStart(0L);
+        LocalDateTime tenantPeriodStart = preDeductResult.tenantPeriodStart();
         String tenantPeriodStr = tenantPeriodStart.format(PERIOD_FORMAT);
         String tenantKey = buildKey(preDeductResult.tenantId(), 0L, tenantPeriodStr);
 
@@ -209,8 +209,7 @@ public class AiBudgetChecker {
         String periodStr = preDeductResult.periodStart().format(PERIOD_FORMAT);
         String userKey = buildKey(preDeductResult.tenantId(), preDeductResult.userId(), periodStr);
 
-        LocalDateTime tenantPeriodStart = getCurrentPeriodStart(0L);
-        String tenantPeriodStr = tenantPeriodStart.format(PERIOD_FORMAT);
+        String tenantPeriodStr = preDeductResult.tenantPeriodStart().format(PERIOD_FORMAT);
         String tenantKey = buildKey(preDeductResult.tenantId(), 0L, tenantPeriodStr);
 
         stringRedisTemplate.opsForValue().increment(userKey, -preDeductResult.amount());
@@ -382,7 +381,8 @@ public class AiBudgetChecker {
     /**
      * 预扣凭证
      */
-    public record PreDeductResult(Long tenantId, Long userId, long amount, LocalDateTime periodStart) {
+    public record PreDeductResult(Long tenantId, Long userId, long amount,
+                                  LocalDateTime periodStart, LocalDateTime tenantPeriodStart) {
     }
 
 }
