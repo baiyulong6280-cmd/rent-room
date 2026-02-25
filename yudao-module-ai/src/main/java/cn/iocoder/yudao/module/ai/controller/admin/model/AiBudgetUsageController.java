@@ -37,17 +37,29 @@ public class AiBudgetUsageController {
     @Parameter(name = "userId", description = "用户编号，0 表示租户级", required = true, example = "0")
     @PreAuthorize("@ss.hasPermission('ai:budget-usage:query')")
     public CommonResult<AiBudgetUsageRespVO> getBudgetUsage(@RequestParam("userId") Long userId) {
-        // 当前月份的 1 号 00:00
-        LocalDateTime periodStart = LocalDateTime.now()
-                .with(TemporalAdjusters.firstDayOfMonth())
-                .withHour(0).withMinute(0).withSecond(0).withNano(0);
+        // 查询预算配置：优先 MONTHLY，没有则查 DAILY
+        AiBudgetConfigDO config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.MONTHLY.getType());
+        if (config == null) {
+            config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.DAILY.getType());
+        }
+
+        // 根据配置的周期类型计算周期开始时间
+        LocalDateTime periodStart;
+        if (config != null && AiBudgetPeriodTypeEnum.DAILY.getType().equals(config.getPeriodType())) {
+            // 日度：当天 00:00
+            periodStart = LocalDateTime.now()
+                    .withHour(0).withMinute(0).withSecond(0).withNano(0);
+        } else {
+            // 月度（默认）：当月 1 号 00:00
+            periodStart = LocalDateTime.now()
+                    .with(TemporalAdjusters.firstDayOfMonth())
+                    .withHour(0).withMinute(0).withSecond(0).withNano(0);
+        }
 
         // 查询用量
         AiBudgetUsageDO usage = budgetUsageService.getUsage(userId, periodStart);
         long usedAmount = usage != null ? usage.getUsedAmount() : 0L;
 
-        // 查询预算配置
-        AiBudgetConfigDO config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.MONTHLY.getType());
         Long budgetAmount = config != null ? config.getBudgetAmount() : null;
 
         // 构建响应

@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS "ai_model_pricing" (
     "price_cached_per_1m" bigint NOT NULL DEFAULT 0,
     "price_out_per_1m" bigint NOT NULL DEFAULT 0,
     "price_reasoning_per_1m" bigint NOT NULL DEFAULT 0,
+    "strategy_type" varchar(32) NOT NULL DEFAULT 'DEFAULT',
+    "strategy_config" text NULL,
     "status" tinyint NOT NULL,
     "creator" varchar(64) NULL DEFAULT '',
     "create_time" datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,

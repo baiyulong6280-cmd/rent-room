@@ -42,6 +42,12 @@ public class AiModelPricingRespVO {
     @Schema(description = "推理/思考输出单价（元/100万tokens）", example = "16.0")
     private Double priceReasoningPer1mYuan;
 
+    @Schema(description = "计费策略类型", example = "DEFAULT")
+    private String strategyType;
+
+    @Schema(description = "策略扩展配置（JSON）", example = "{}")
+    private String strategyConfig;
+
     @Schema(description = "状态", requiredMode = Schema.RequiredMode.REQUIRED, example = "0")
     private Integer status;
 

@@ -9,6 +9,8 @@ import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelPricingDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.billing.AiModelCallLogMapper;
 import cn.iocoder.yudao.module.ai.enums.billing.AiCallStatusEnum;
 import cn.iocoder.yudao.module.ai.enums.billing.AiTokenSourceEnum;
+import cn.iocoder.yudao.module.ai.service.billing.pricing.AiPricingStrategyManager;
+import cn.iocoder.yudao.module.ai.service.billing.pricing.DefaultPricingStrategy;
 import jakarta.annotation.Resource;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Import;
@@ -23,7 +25,7 @@ import static org.mockito.Mockito.when;
 /**
  * {@link AiModelCallLogServiceImpl} 的单元测试
  */
-@Import(AiModelCallLogServiceImpl.class)
+@Import({AiModelCallLogServiceImpl.class, AiPricingStrategyManager.class, DefaultPricingStrategy.class})
 public class AiModelCallLogServiceImplTest extends BaseDbUnitTest {
 
     @Resource
