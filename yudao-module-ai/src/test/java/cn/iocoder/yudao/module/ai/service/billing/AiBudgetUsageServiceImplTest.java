@@ -78,4 +78,52 @@ public class AiBudgetUsageServiceImplTest extends BaseDbUnitTest {
         assertEquals(8_000_000L, budgetUsageMapper.selectByUserAndPeriod(1L, mar).getUsedAmount());
     }
 
+    // ========== version 字段 ==========
+
+    @Test
+    public void testAddUsage_versionInitialized() {
+        budgetUsageService.addUsage(1L, PERIOD_START, 1_000_000L);
+
+        AiBudgetUsageDO usage = budgetUsageMapper.selectByUserAndPeriod(1L, PERIOD_START);
+        assertEquals(0, usage.getVersion());
+    }
+
+    // ========== getUsage ==========
+
+    @Test
+    public void testGetUsage_exists() {
+        budgetUsageService.addUsage(1L, PERIOD_START, 5_000_000L);
+
+        AiBudgetUsageDO usage = budgetUsageService.getUsage(1L, PERIOD_START);
+        assertNotNull(usage);
+        assertEquals(5_000_000L, usage.getUsedAmount());
+    }
+
+    // ========== 多次累加 ==========
+
+    @Test
+    public void testAddUsage_multipleAccumulations() {
+        budgetUsageService.addUsage(1L, PERIOD_START, 1_000_000L);
+        budgetUsageService.addUsage(1L, PERIOD_START, 2_000_000L);
+        budgetUsageService.addUsage(1L, PERIOD_START, 3_000_000L);
+
+        AiBudgetUsageDO usage = budgetUsageMapper.selectByUserAndPeriod(1L, PERIOD_START);
+        assertEquals(6_000_000L, usage.getUsedAmount());
+    }
+
+    // ========== DAILY 周期 ==========
+
+    @Test
+    public void testAddUsage_dailyPeriods() {
+        LocalDateTime day1 = LocalDateTime.of(2026, 2, 25, 0, 0, 0);
+        LocalDateTime day2 = LocalDateTime.of(2026, 2, 26, 0, 0, 0);
+
+        budgetUsageService.addUsage(1L, day1, 3_000_000L);
+        budgetUsageService.addUsage(1L, day2, 5_000_000L);
+        budgetUsageService.addUsage(1L, day1, 1_000_000L); // 累加到 day1
+
+        assertEquals(4_000_000L, budgetUsageMapper.selectByUserAndPeriod(1L, day1).getUsedAmount());
+        assertEquals(5_000_000L, budgetUsageMapper.selectByUserAndPeriod(1L, day2).getUsedAmount());
+    }
+
 }

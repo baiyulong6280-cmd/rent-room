@@ -1,7 +1,9 @@
 package cn.iocoder.yudao.module.ai.service.billing;
 
 import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
+import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.test.core.ut.BaseDbUnitTest;
+import cn.iocoder.yudao.module.ai.controller.admin.model.vo.budget.AiBudgetConfigPageReqVO;
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.budget.AiBudgetConfigSaveReqVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiBudgetConfigDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.billing.AiBudgetConfigMapper;
@@ -102,6 +104,114 @@ public class AiBudgetConfigServiceImplTest extends BaseDbUnitTest {
 
         // 不存在的查询
         assertNull(budgetConfigService.getBudgetConfig(999L, "MONTHLY"));
+    }
+
+    // ========== getBudgetConfig(id) ==========
+
+    @Test
+    public void testGetBudgetConfig_byId() {
+        AiBudgetConfigDO config = AiBudgetConfigDO.builder()
+                .userId(1L).periodType("DAILY").currency("CNY")
+                .budgetAmount(5_000_000L).status(CommonStatusEnum.ENABLE.getStatus())
+                .build();
+        budgetConfigMapper.insert(config);
+
+        AiBudgetConfigDO result = budgetConfigService.getBudgetConfig(config.getId());
+        assertNotNull(result);
+        assertEquals(1L, result.getUserId());
+        assertEquals("DAILY", result.getPeriodType());
+    }
+
+    @Test
+    public void testGetBudgetConfig_byId_notExists() {
+        assertNull(budgetConfigService.getBudgetConfig(999L));
+    }
+
+    // ========== getBudgetConfigPage ==========
+
+    @Test
+    public void testGetBudgetConfigPage_all() {
+        budgetConfigMapper.insert(AiBudgetConfigDO.builder()
+                .userId(0L).periodType("MONTHLY").currency("CNY")
+                .budgetAmount(100_000_000L).status(CommonStatusEnum.ENABLE.getStatus()).build());
+        budgetConfigMapper.insert(AiBudgetConfigDO.builder()
+                .userId(1L).periodType("DAILY").currency("CNY")
+                .budgetAmount(5_000_000L).status(CommonStatusEnum.ENABLE.getStatus()).build());
+        budgetConfigMapper.insert(AiBudgetConfigDO.builder()
+                .userId(2L).periodType("MONTHLY").currency("CNY")
+                .budgetAmount(50_000_000L).status(CommonStatusEnum.DISABLE.getStatus()).build());
+
+        AiBudgetConfigPageReqVO reqVO = new AiBudgetConfigPageReqVO();
+        PageResult<AiBudgetConfigDO> page = budgetConfigService.getBudgetConfigPage(reqVO);
+
+        assertEquals(3, page.getTotal());
+    }
+
+    @Test
+    public void testGetBudgetConfigPage_filterByUserId() {
+        budgetConfigMapper.insert(AiBudgetConfigDO.builder()
+                .userId(0L).periodType("MONTHLY").currency("CNY")
+                .budgetAmount(100_000_000L).status(CommonStatusEnum.ENABLE.getStatus()).build());
+        budgetConfigMapper.insert(AiBudgetConfigDO.builder()
+                .userId(1L).periodType("DAILY").currency("CNY")
+                .budgetAmount(5_000_000L).status(CommonStatusEnum.ENABLE.getStatus()).build());
+
+        AiBudgetConfigPageReqVO reqVO = new AiBudgetConfigPageReqVO();
+        reqVO.setUserId(1L);
+        PageResult<AiBudgetConfigDO> page = budgetConfigService.getBudgetConfigPage(reqVO);
+
+        assertEquals(1, page.getTotal());
+        assertEquals(1L, page.getList().get(0).getUserId());
+    }
+
+    @Test
+    public void testGetBudgetConfigPage_filterByPeriodType() {
+        budgetConfigMapper.insert(AiBudgetConfigDO.builder()
+                .userId(0L).periodType("MONTHLY").currency("CNY")
+                .budgetAmount(100_000_000L).status(CommonStatusEnum.ENABLE.getStatus()).build());
+        budgetConfigMapper.insert(AiBudgetConfigDO.builder()
+                .userId(1L).periodType("DAILY").currency("CNY")
+                .budgetAmount(5_000_000L).status(CommonStatusEnum.ENABLE.getStatus()).build());
+
+        AiBudgetConfigPageReqVO reqVO = new AiBudgetConfigPageReqVO();
+        reqVO.setPeriodType("DAILY");
+        PageResult<AiBudgetConfigDO> page = budgetConfigService.getBudgetConfigPage(reqVO);
+
+        assertEquals(1, page.getTotal());
+        assertEquals("DAILY", page.getList().get(0).getPeriodType());
+    }
+
+    @Test
+    public void testGetBudgetConfigPage_filterByStatus() {
+        budgetConfigMapper.insert(AiBudgetConfigDO.builder()
+                .userId(0L).periodType("MONTHLY").currency("CNY")
+                .budgetAmount(100_000_000L).status(CommonStatusEnum.ENABLE.getStatus()).build());
+        budgetConfigMapper.insert(AiBudgetConfigDO.builder()
+                .userId(1L).periodType("MONTHLY").currency("CNY")
+                .budgetAmount(50_000_000L).status(CommonStatusEnum.DISABLE.getStatus()).build());
+
+        AiBudgetConfigPageReqVO reqVO = new AiBudgetConfigPageReqVO();
+        reqVO.setStatus(CommonStatusEnum.DISABLE.getStatus());
+        PageResult<AiBudgetConfigDO> page = budgetConfigService.getBudgetConfigPage(reqVO);
+
+        assertEquals(1, page.getTotal());
+        assertEquals(CommonStatusEnum.DISABLE.getStatus(), page.getList().get(0).getStatus());
+    }
+
+    // ========== yuanToMicro 边界 ==========
+
+    @Test
+    public void testCreateBudgetConfig_nullBudgetAmount() {
+        AiBudgetConfigSaveReqVO reqVO = new AiBudgetConfigSaveReqVO();
+        reqVO.setUserId(0L);
+        reqVO.setPeriodType("MONTHLY");
+        reqVO.setBudgetAmountYuan(null); // null → 0
+        reqVO.setStatus(CommonStatusEnum.ENABLE.getStatus());
+
+        Long id = budgetConfigService.createBudgetConfig(reqVO);
+
+        AiBudgetConfigDO config = budgetConfigMapper.selectById(id);
+        assertEquals(0L, config.getBudgetAmount());
     }
 
 }
