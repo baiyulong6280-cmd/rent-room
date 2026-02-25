@@ -141,6 +141,10 @@ public class AiWriteServiceImpl implements AiWriteService {
                 // 释放预扣费
                 budgetChecker.release(preDeductResult);
             });
+        }).doOnCancel(() -> {
+            log.info("[generateWriteContent][generateReqVO({}) 取消请求]", generateReqVO);
+            // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
+            TenantUtils.execute(tenantId, () -> budgetChecker.release(preDeductResult));
         }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.WRITE_STREAM_ERROR)));
     }
 
