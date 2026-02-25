@@ -56,6 +56,17 @@ public class AiModelPricingDO extends TenantBaseDO {
     @TableField("price_reasoning_per_1m")
     private Long priceReasoningPer1m;
     /**
+     * 计费策略类型
+     *
+     * 枚举 {@link cn.iocoder.yudao.module.ai.enums.billing.AiPricingStrategyTypeEnum}
+     * 默认 "DEFAULT"
+     */
+    private String strategyType;
+    /**
+     * 策略扩展配置（JSON），供自定义策略读取
+     */
+    private String strategyConfig;
+    /**
      * 状态
      *
      * 枚举 {@link CommonStatusEnum}

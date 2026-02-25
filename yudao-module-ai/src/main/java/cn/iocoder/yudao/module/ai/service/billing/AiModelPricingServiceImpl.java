@@ -90,6 +90,8 @@ public class AiModelPricingServiceImpl implements AiModelPricingService {
         pricing.setId(reqVO.getId());
         pricing.setModelId(reqVO.getModelId());
         pricing.setStatus(reqVO.getStatus());
+        pricing.setStrategyType(reqVO.getStrategyType());
+        pricing.setStrategyConfig(reqVO.getStrategyConfig());
         // 元转微元：元 * 1,000,000，四舍五入
         pricing.setPriceInPer1m(yuanToMicro(reqVO.getPriceInPer1mYuan()));
         pricing.setPriceCachedPer1m(yuanToMicro(reqVO.getPriceCachedPer1mYuan()));

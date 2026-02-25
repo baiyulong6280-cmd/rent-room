@@ -82,6 +82,8 @@ public class AiModelPricingController {
         respVO.setPriceCachedPer1m(pricing.getPriceCachedPer1m());
         respVO.setPriceOutPer1m(pricing.getPriceOutPer1m());
         respVO.setPriceReasoningPer1m(pricing.getPriceReasoningPer1m());
+        respVO.setStrategyType(pricing.getStrategyType());
+        respVO.setStrategyConfig(pricing.getStrategyConfig());
         respVO.setStatus(pricing.getStatus());
         respVO.setCreateTime(pricing.getCreateTime());
         // 微元转元，方便前端展示

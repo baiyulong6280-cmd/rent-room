@@ -127,7 +127,7 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
         verify(valueOperations, atLeastOnce()).increment(contains(":0:"), eq(-4000L));
         // DB 落库
         verify(budgetUsageService).addUsage(eq(100L), eq(periodStart), eq(6000L));
-        verify(budgetUsageService).addUsage(eq(0L), eq(periodStart), eq(6000L));
+        verify(budgetUsageService).addUsage(eq(0L), any(LocalDateTime.class), eq(6000L));
     }
 
     @Test

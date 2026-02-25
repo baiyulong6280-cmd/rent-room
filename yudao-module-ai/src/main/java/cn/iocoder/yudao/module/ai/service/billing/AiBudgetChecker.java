@@ -42,7 +42,7 @@ import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.BUDGET_EXCEEDE
 public class AiBudgetChecker {
 
     private static final String KEY_PREFIX = "ai:budget:";
-    private static final DateTimeFormatter PERIOD_FORMAT = DateTimeFormatter.ofPattern("yyyyMM");
+    private static final DateTimeFormatter PERIOD_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     /**
      * Lua 脚本：双维度原子预扣费
@@ -110,24 +110,28 @@ public class AiBudgetChecker {
      */
     public PreDeductResult preDeduct(Long tenantId, Long userId, long estimatedCost) {
         if (estimatedCost <= 0) {
-            return new PreDeductResult(tenantId, userId, 0, getCurrentPeriodStart());
+            return new PreDeductResult(tenantId, userId, 0, getCurrentPeriodStart(userId));
         }
 
-        LocalDateTime periodStart = getCurrentPeriodStart();
+        LocalDateTime periodStart = getCurrentPeriodStart(userId);
         String periodStr = periodStart.format(PERIOD_FORMAT);
+
+        // 租户维度的 periodStart 可能与用户维度不同
+        LocalDateTime tenantPeriodStart = getCurrentPeriodStart(0L);
+        String tenantPeriodStr = tenantPeriodStart.format(PERIOD_FORMAT);
 
         // 构建 Redis Key
         String userKey = buildKey(tenantId, userId, periodStr);
-        String tenantKey = buildKey(tenantId, 0L, periodStr);
+        String tenantKey = buildKey(tenantId, 0L, tenantPeriodStr);
 
-        // 查询预算上限
-        long userLimit = getBudgetLimit(userId, AiBudgetPeriodTypeEnum.MONTHLY.getType());
-        long tenantLimit = getBudgetLimit(0L, AiBudgetPeriodTypeEnum.MONTHLY.getType());
+        // 查询预算上限（按用户实际配置的周期类型）
+        long userLimit = getBudgetLimit(userId);
+        long tenantLimit = getBudgetLimit(0L);
 
         // 冷启动：确保 Redis key 存在
         ensureRedisKey(userKey, userId, periodStart);
         if (!userKey.equals(tenantKey)) {
-            ensureRedisKey(tenantKey, 0L, periodStart);
+            ensureRedisKey(tenantKey, 0L, tenantPeriodStart);
         }
 
         // 执行 Lua 脚本
@@ -161,7 +165,11 @@ public class AiBudgetChecker {
         long delta = actualCost - preDeductResult.amount();
         String periodStr = preDeductResult.periodStart().format(PERIOD_FORMAT);
         String userKey = buildKey(preDeductResult.tenantId(), preDeductResult.userId(), periodStr);
-        String tenantKey = buildKey(preDeductResult.tenantId(), 0L, periodStr);
+
+        // 租户维度的 periodStart 可能与用户维度不同（如用户 DAILY、租户 MONTHLY）
+        LocalDateTime tenantPeriodStart = getCurrentPeriodStart(0L);
+        String tenantPeriodStr = tenantPeriodStart.format(PERIOD_FORMAT);
+        String tenantKey = buildKey(preDeductResult.tenantId(), 0L, tenantPeriodStr);
 
         if (delta != 0) {
             // Redis 修正
@@ -175,14 +183,14 @@ public class AiBudgetChecker {
         if (actualCost > 0) {
             budgetUsageService.addUsage(preDeductResult.userId(), preDeductResult.periodStart(), actualCost);
             if (preDeductResult.userId() != 0L) {
-                budgetUsageService.addUsage(0L, preDeductResult.periodStart(), actualCost);
+                budgetUsageService.addUsage(0L, tenantPeriodStart, actualCost);
             }
         }
 
         // 阈值告警检查
         checkThresholdAlerts(preDeductResult.userId(), preDeductResult.periodStart(), actualCost);
         if (preDeductResult.userId() != 0L) {
-            checkThresholdAlerts(0L, preDeductResult.periodStart(), actualCost);
+            checkThresholdAlerts(0L, tenantPeriodStart, actualCost);
         }
     }
 
@@ -195,7 +203,10 @@ public class AiBudgetChecker {
         }
         String periodStr = preDeductResult.periodStart().format(PERIOD_FORMAT);
         String userKey = buildKey(preDeductResult.tenantId(), preDeductResult.userId(), periodStr);
-        String tenantKey = buildKey(preDeductResult.tenantId(), 0L, periodStr);
+
+        LocalDateTime tenantPeriodStart = getCurrentPeriodStart(0L);
+        String tenantPeriodStr = tenantPeriodStart.format(PERIOD_FORMAT);
+        String tenantKey = buildKey(preDeductResult.tenantId(), 0L, tenantPeriodStr);
 
         stringRedisTemplate.opsForValue().increment(userKey, -preDeductResult.amount());
         if (!userKey.equals(tenantKey)) {
@@ -212,8 +223,8 @@ public class AiBudgetChecker {
      */
     private void checkThresholdAlerts(Long userId, LocalDateTime periodStart, long deltaAmount) {
         try {
-            AiBudgetConfigDO config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.MONTHLY.getType());
-            if (config == null || !CommonStatusEnum.ENABLE.getStatus().equals(config.getStatus())) {
+            AiBudgetConfigDO config = getEnabledBudgetConfig(userId);
+            if (config == null) {
                 return;
             }
             long budgetAmount = config.getBudgetAmount();
@@ -301,7 +312,17 @@ public class AiBudgetChecker {
         return KEY_PREFIX + tenantId + ":" + userId + ":" + periodStr;
     }
 
-    private LocalDateTime getCurrentPeriodStart() {
+    /**
+     * 获取用户当前周期的开始时间
+     *
+     * 根据用户实际配置的周期类型决定：DAILY 用当天零点，MONTHLY 用月初
+     */
+    private LocalDateTime getCurrentPeriodStart(Long userId) {
+        AiBudgetConfigDO config = getEnabledBudgetConfig(userId);
+        if (config != null && AiBudgetPeriodTypeEnum.DAILY.getType().equals(config.getPeriodType())) {
+            return LocalDateTime.now()
+                    .withHour(0).withMinute(0).withSecond(0).withNano(0);
+        }
         return LocalDateTime.now()
                 .with(TemporalAdjusters.firstDayOfMonth())
                 .withHour(0).withMinute(0).withSecond(0).withNano(0);
@@ -309,13 +330,29 @@ public class AiBudgetChecker {
 
     /**
      * 获取预算上限，-1 表示无限制（未配置预算）
+     *
+     * 优先查 MONTHLY，没有则查 DAILY
      */
-    private long getBudgetLimit(Long userId, String periodType) {
-        AiBudgetConfigDO config = budgetConfigService.getBudgetConfig(userId, periodType);
-        if (config == null || !CommonStatusEnum.ENABLE.getStatus().equals(config.getStatus())) {
+    private long getBudgetLimit(Long userId) {
+        AiBudgetConfigDO config = getEnabledBudgetConfig(userId);
+        if (config == null) {
             return -1L; // 无限制
         }
         return config.getBudgetAmount();
+    }
+
+    /**
+     * 获取用户启用的预算配置，优先 MONTHLY，没有则查 DAILY
+     */
+    private AiBudgetConfigDO getEnabledBudgetConfig(Long userId) {
+        AiBudgetConfigDO config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.MONTHLY.getType());
+        if (config == null) {
+            config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.DAILY.getType());
+        }
+        if (config == null || !CommonStatusEnum.ENABLE.getStatus().equals(config.getStatus())) {
+            return null;
+        }
+        return config;
     }
 
     /**
@@ -329,8 +366,11 @@ public class AiBudgetChecker {
         // 从 DB 加载
         AiBudgetUsageDO usage = budgetUsageService.getUsage(userId, periodStart);
         long usedAmount = usage != null ? usage.getUsedAmount() : 0L;
-        // 设置到 Redis，过期时间 35 天（覆盖一个月周期 + 缓冲）
-        stringRedisTemplate.opsForValue().setIfAbsent(key, String.valueOf(usedAmount), Duration.ofDays(35));
+        // 过期时间：DAILY 2 天，MONTHLY 35 天
+        AiBudgetConfigDO config = getEnabledBudgetConfig(userId);
+        Duration ttl = (config != null && AiBudgetPeriodTypeEnum.DAILY.getType().equals(config.getPeriodType()))
+                ? Duration.ofDays(2) : Duration.ofDays(35);
+        stringRedisTemplate.opsForValue().setIfAbsent(key, String.valueOf(usedAmount), ttl);
     }
 
     /**

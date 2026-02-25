@@ -31,6 +31,12 @@ public class AiModelPricingSaveReqVO {
     @Schema(description = "推理/思考输出单价（元/100万tokens），0或不填表示不区分", example = "16.0")
     private Double priceReasoningPer1mYuan;
 
+    @Schema(description = "计费策略类型", example = "DEFAULT")
+    private String strategyType;
+
+    @Schema(description = "策略扩展配置（JSON）", example = "{}")
+    private String strategyConfig;
+
     @Schema(description = "状态", requiredMode = Schema.RequiredMode.REQUIRED, example = "0")
     @NotNull(message = "状态不能为空")
     @InEnum(CommonStatusEnum.class)

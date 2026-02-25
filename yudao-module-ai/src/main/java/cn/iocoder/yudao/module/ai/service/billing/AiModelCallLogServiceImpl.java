@@ -8,6 +8,8 @@ import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelCallLogDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelPricingDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.billing.AiModelCallLogMapper;
 import cn.iocoder.yudao.module.ai.enums.billing.AiCallStatusEnum;
+import cn.iocoder.yudao.module.ai.service.billing.pricing.AiPricingContext;
+import cn.iocoder.yudao.module.ai.service.billing.pricing.AiPricingStrategyManager;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
@@ -29,6 +31,9 @@ public class AiModelCallLogServiceImpl implements AiModelCallLogService {
 
     @Resource
     private AiModelPricingService modelPricingService;
+
+    @Resource
+    private AiPricingStrategyManager pricingStrategyManager;
 
     @Override
     public Long createCallLog(AiModelCallLogDO callLog) {
@@ -144,10 +149,17 @@ public class AiModelCallLogServiceImpl implements AiModelCallLogService {
         }
 
         // 计算费用
-        callLog.setCostAmount(AiCostCalculator.calculateCost(
-                callLog.getPromptTokens(), callLog.getCompletionTokens(),
-                callLog.getCachedTokens(), callLog.getReasoningTokens(),
-                pricing));
+        AiPricingContext context = AiPricingContext.builder()
+                .promptTokens(callLog.getPromptTokens())
+                .completionTokens(callLog.getCompletionTokens())
+                .cachedTokens(callLog.getCachedTokens())
+                .reasoningTokens(callLog.getReasoningTokens())
+                .pricing(pricing)
+                .platform(callLog.getPlatform())
+                .model(callLog.getModel())
+                .build();
+        String strategyType = pricing != null ? pricing.getStrategyType() : null;
+        callLog.setCostAmount(pricingStrategyManager.getStrategy(strategyType).calculateCost(context));
     }
 
     private boolean isTokenEmpty(AiModelCallLogDO callLog) {

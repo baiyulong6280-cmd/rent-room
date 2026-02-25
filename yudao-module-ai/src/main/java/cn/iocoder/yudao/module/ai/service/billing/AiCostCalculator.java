@@ -16,7 +16,9 @@ import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelPricingDO;
  * price_reasoning_per_1m=0 时视为等于 price_out_per_1m。
  *
  * @author 芋道源码
+ * @deprecated 请使用 {@link cn.iocoder.yudao.module.ai.service.billing.pricing.DefaultPricingStrategy}
  */
+@Deprecated
 public class AiCostCalculator {
 
     private AiCostCalculator() {
