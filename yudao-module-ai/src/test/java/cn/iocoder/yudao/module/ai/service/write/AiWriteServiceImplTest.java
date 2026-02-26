@@ -121,7 +121,7 @@ public class AiWriteServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
-    public void testGenerateWriteContent_errorPathShouldReleaseWhenUpdateFails() {
+    public void testGenerateWriteContent_errorPathShouldSettleWhenUpdateFails() {
         AiWriteGenerateReqVO reqVO = new AiWriteGenerateReqVO();
         reqVO.setType(AiWriteTypeEnum.WRITING.getType());
         reqVO.setPrompt("测试异常");
@@ -135,7 +135,9 @@ public class AiWriteServiceImplTest extends BaseMockitoUnitTest {
 
         writeService.generateWriteContent(reqVO, 2L).subscribe();
 
-        verify(budgetChecker, timeout(1000).times(1)).release(eq(preDeductResult));
+        verify(callLogService, timeout(1000).times(1)).createCallLog(any());
+        verify(budgetChecker, timeout(1000).times(1)).settle(eq(preDeductResult), eq(0L));
+        verify(budgetChecker, never()).release(eq(preDeductResult));
     }
 
     @Test

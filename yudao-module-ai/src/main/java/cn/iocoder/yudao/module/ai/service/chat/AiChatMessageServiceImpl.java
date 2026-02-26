@@ -343,18 +343,27 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
                 TenantUtils.execute(tenantId, () -> {
                     boolean budgetFinalized = false;
+                    String errorMessage = throwable.getMessage();
                     try {
-                        // 如果有内容，则更新内容
-                        if (StrUtil.isNotEmpty(contentBuffer)) {
-                            chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
-                                    .setContent(contentBuffer.toString()).setReasoningContent(reasoningContentBuffer.toString()));
-                        } else {
-                            // 否则，则进行删除
-                            chatMessageMapper.deleteById(assistantMessage.getId());
+                        try {
+                            // 如果有内容，则更新内容
+                            if (StrUtil.isNotEmpty(contentBuffer)) {
+                                chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
+                                        .setContent(contentBuffer.toString()).setReasoningContent(reasoningContentBuffer.toString()));
+                            } else {
+                                // 否则，则进行删除
+                                chatMessageMapper.deleteById(assistantMessage.getId());
+                            }
+                        } catch (Exception persistEx) {
+                            log.error("[sendChatMessageStream][assistantMessageId({}) 持久化失败]", assistantMessage.getId(), persistEx);
+                            if (StrUtil.isNotBlank(persistEx.getMessage())) {
+                                errorMessage = StrUtil.blankToDefault(errorMessage, "")
+                                        + "; persist_error=" + persistEx.getMessage();
+                            }
                         }
                         // 记录调用日志（失败）
                         createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
-                                requestTime, lastChunkRef.get(), AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(),
+                                requestTime, lastChunkRef.get(), AiCallStatusEnum.FAIL.getStatus(), errorMessage,
                                 null, null, null, null, null, null, preDeductResult,
                                 StrUtil.isNotEmpty(contentBuffer));
                         budgetFinalized = true;
@@ -369,18 +378,24 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
                 TenantUtils.execute(tenantId, () -> {
                     boolean budgetFinalized = false;
+                    String errorMessage = null;
                     try {
-                        // 如果有内容，则更新内容
-                        if (StrUtil.isNotEmpty(contentBuffer)) {
-                            chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
-                                    .setContent(contentBuffer.toString()).setReasoningContent(reasoningContentBuffer.toString()));
-                        } else {
-                            // 否则，则进行删除
-                            chatMessageMapper.deleteById(assistantMessage.getId());
+                        try {
+                            // 如果有内容，则更新内容
+                            if (StrUtil.isNotEmpty(contentBuffer)) {
+                                chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
+                                        .setContent(contentBuffer.toString()).setReasoningContent(reasoningContentBuffer.toString()));
+                            } else {
+                                // 否则，则进行删除
+                                chatMessageMapper.deleteById(assistantMessage.getId());
+                            }
+                        } catch (Exception persistEx) {
+                            log.error("[sendChatMessageStream][assistantMessageId({}) 取消时持久化失败]", assistantMessage.getId(), persistEx);
+                            errorMessage = persistEx.getMessage();
                         }
                         // 记录调用日志（取消）
                         createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
-                                requestTime, lastChunkRef.get(), AiCallStatusEnum.CANCEL.getStatus(), null,
+                                requestTime, lastChunkRef.get(), AiCallStatusEnum.CANCEL.getStatus(), errorMessage,
                                 null, null, null, null, null, null, preDeductResult,
                                 StrUtil.isNotEmpty(contentBuffer));
                         budgetFinalized = true;

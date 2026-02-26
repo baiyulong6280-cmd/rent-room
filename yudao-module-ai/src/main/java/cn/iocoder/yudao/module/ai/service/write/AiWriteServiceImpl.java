@@ -135,11 +135,20 @@ public class AiWriteServiceImpl implements AiWriteService {
                 // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
                 TenantUtils.execute(tenantId, () -> {
                     boolean budgetFinalized = false;
+                    String errorMessage = throwable.getMessage();
                     try {
-                        writeMapper.updateById(new AiWriteDO().setId(writeDO.getId()).setErrorMessage(throwable.getMessage()));
+                        try {
+                            writeMapper.updateById(new AiWriteDO().setId(writeDO.getId()).setErrorMessage(errorMessage));
+                        } catch (Exception updateEx) {
+                            log.error("[generateWriteContent][writeId({}) 更新失败信息失败]", writeDO.getId(), updateEx);
+                            if (StrUtil.isNotBlank(updateEx.getMessage())) {
+                                errorMessage = StrUtil.blankToDefault(errorMessage, "")
+                                        + "; persist_error=" + updateEx.getMessage();
+                            }
+                        }
                         // 记录调用日志（失败）
                         createCallLog(model, userId, writeDO.getId(), AiBizTypeEnum.WRITE.getType(),
-                                requestTime, lastChunkRef.get(), AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(),
+                                requestTime, lastChunkRef.get(), AiCallStatusEnum.FAIL.getStatus(), errorMessage,
                                 preDeductResult, contentBuffer.length() > 0);
                         budgetFinalized = true;
                     } finally {
