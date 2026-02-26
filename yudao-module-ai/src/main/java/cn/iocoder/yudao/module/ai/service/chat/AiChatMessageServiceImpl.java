@@ -416,6 +416,7 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
         try {
             LocalDateTime responseTime = LocalDateTime.now();
             long durationMs = java.time.Duration.between(requestTime, responseTime).toMillis();
+            Long costAmount = null;
 
             // 从 ChatResponse 提取 usage
             if (chatResponse != null && chatResponse.getMetadata() != null
@@ -436,6 +437,12 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
             }
             if (tokenSource == null) {
                 tokenSource = AiTokenSourceEnum.NONE.getSource();
+            }
+            if (AiCallStatusEnum.SUCCESS.getStatus().equals(status)
+                    && preDeductResult != null
+                    && !AiTokenSourceEnum.PROVIDER.getSource().equals(tokenSource)) {
+                tokenSource = AiTokenSourceEnum.ESTIMATED.getSource();
+                costAmount = preDeductResult.amount();
             }
 
             // 截断错误信息
@@ -463,6 +470,7 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                     .cachedTokens(cachedTokens)
                     .reasoningTokens(reasoningTokens)
                     .tokenSource(tokenSource)
+                    .costAmount(costAmount)
                     .build();
             callLogService.createCallLog(callLog);
         } catch (Exception e) {

@@ -8,6 +8,7 @@ import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelCallLogDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelPricingDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.billing.AiModelCallLogMapper;
 import cn.iocoder.yudao.module.ai.enums.billing.AiCallStatusEnum;
+import cn.iocoder.yudao.module.ai.enums.billing.AiTokenSourceEnum;
 import cn.iocoder.yudao.module.ai.service.billing.pricing.AiPricingContext;
 import cn.iocoder.yudao.module.ai.service.billing.pricing.AiPricingStrategyManager;
 import jakarta.annotation.Resource;
@@ -139,6 +140,12 @@ public class AiModelCallLogServiceImpl implements AiModelCallLogService {
             callLog.setPriceCachedPer1m(0L);
             callLog.setPriceOutPer1m(0L);
             callLog.setPriceReasoningPer1m(0L);
+        }
+
+        // 预估费用（缺少厂商 usage）沿用调用方传入的金额，不再重算覆盖
+        if (AiTokenSourceEnum.ESTIMATED.getSource().equals(callLog.getTokenSource())
+                && callLog.getCostAmount() != null) {
+            return;
         }
 
         // 失败且无 token 时不计费

@@ -145,6 +145,39 @@ public class AiModelCallLogServiceImplTest extends BaseDbUnitTest {
     }
 
     @Test
+    public void testCreateCallLog_estimatedCostShouldBePreserved() {
+        AiModelPricingDO pricing = new AiModelPricingDO();
+        pricing.setPriceInPer1m(2_000_000L);
+        pricing.setPriceCachedPer1m(0L);
+        pricing.setPriceOutPer1m(8_000_000L);
+        pricing.setPriceReasoningPer1m(0L);
+        when(modelPricingService.getLatestModelPricing(eq(100L))).thenReturn(pricing);
+
+        AiModelCallLogDO callLog = AiModelCallLogDO.builder()
+                .userId(1L)
+                .platform("DEEP_SEEK")
+                .modelId(100L)
+                .model("deepseek-chat")
+                .bizType("WRITE")
+                .bizId(201L)
+                .requestTime(LocalDateTime.now())
+                .responseTime(LocalDateTime.now())
+                .durationMs(1200)
+                .status(AiCallStatusEnum.SUCCESS.getStatus())
+                .tokenSource(AiTokenSourceEnum.ESTIMATED.getSource())
+                .costAmount(12345L)
+                .build();
+
+        Long id = callLogService.createCallLog(callLog);
+
+        AiModelCallLogDO dbLog = callLogMapper.selectById(id);
+        assertEquals(AiTokenSourceEnum.ESTIMATED.getSource(), dbLog.getTokenSource());
+        assertEquals(12345L, dbLog.getCostAmount());
+        assertEquals(2_000_000L, dbLog.getPriceInPer1m());
+        assertEquals(8_000_000L, dbLog.getPriceOutPer1m());
+    }
+
+    @Test
     public void testGetCallLogStat_empty() {
         AiModelCallLogStatReqVO reqVO = new AiModelCallLogStatReqVO();
         AiModelCallLogStatRespVO stat = callLogService.getCallLogStat(reqVO);

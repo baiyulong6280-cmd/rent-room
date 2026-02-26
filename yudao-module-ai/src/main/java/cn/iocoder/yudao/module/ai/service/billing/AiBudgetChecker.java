@@ -17,7 +17,6 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -42,7 +41,7 @@ import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.BUDGET_EXCEEDE
 public class AiBudgetChecker {
 
     private static final String KEY_PREFIX = "ai:budget:";
-    private static final DateTimeFormatter PERIOD_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
+    private static final DateTimeFormatter PERIOD_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
     /**
      * Lua 脚本：双维度原子预扣费
@@ -319,17 +318,13 @@ public class AiBudgetChecker {
     /**
      * 获取用户当前周期的开始时间
      *
-     * 根据用户实际配置的周期类型决定：DAILY 用当天零点，MONTHLY 用月初
+     * 根据用户实际配置的周期类型决定：
+     * - DAILY：滚动 24 小时（锚点为预算配置创建时间）
+     * - MONTHLY：按预算配置创建时刻锚定的自然月
      */
     private LocalDateTime getCurrentPeriodStart(Long userId) {
         AiBudgetConfigDO config = getEnabledBudgetConfig(userId);
-        if (config != null && AiBudgetPeriodTypeEnum.DAILY.getType().equals(config.getPeriodType())) {
-            return LocalDateTime.now()
-                    .withHour(0).withMinute(0).withSecond(0).withNano(0);
-        }
-        return LocalDateTime.now()
-                .with(TemporalAdjusters.firstDayOfMonth())
-                .withHour(0).withMinute(0).withSecond(0).withNano(0);
+        return AiBudgetPeriodHelper.getCurrentPeriodStart(config);
     }
 
     /**

@@ -4,9 +4,11 @@ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.tenant.core.context.TenantContextHolder;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.ai.controller.admin.mindmap.vo.AiMindMapGenerateReqVO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelCallLogDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.mindmap.AiMindMapDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.mindmap.AiMindMapMapper;
+import cn.iocoder.yudao.module.ai.enums.billing.AiTokenSourceEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiModelTypeEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
 import cn.iocoder.yudao.module.ai.service.billing.AiBudgetChecker;
@@ -20,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
@@ -27,6 +30,7 @@ import reactor.core.publisher.Flux;
 import java.time.LocalDateTime;
 import java.util.Collections;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -112,5 +116,26 @@ public class AiMindMapServiceImplTest extends BaseMockitoUnitTest {
         mindMapService.generateMindMap(reqVO, 2L).subscribe();
 
         verify(budgetChecker, timeout(1000).times(1)).release(eq(preDeductResult));
+    }
+
+    @Test
+    public void testGenerateMindMap_successWithoutUsageShouldUseEstimatedCost() {
+        AiMindMapGenerateReqVO reqVO = new AiMindMapGenerateReqVO();
+        reqVO.setPrompt("测试成功");
+
+        ChatResponse chunk = mock(ChatResponse.class, RETURNS_DEEP_STUBS);
+        when(chunk.getResult().getOutput().getText()).thenReturn("ok");
+        when(chunk.getMetadata()).thenReturn(null);
+        when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(chunk));
+
+        mindMapService.generateMindMap(reqVO, 2L).collectList().block();
+
+        org.mockito.ArgumentCaptor<AiModelCallLogDO> captor =
+                org.mockito.ArgumentCaptor.forClass(AiModelCallLogDO.class);
+        verify(callLogService, times(1)).createCallLog(captor.capture());
+        AiModelCallLogDO callLog = captor.getValue();
+        assertEquals(AiTokenSourceEnum.ESTIMATED.getSource(), callLog.getTokenSource());
+        assertEquals(preDeductResult.amount(), callLog.getCostAmount());
+        verify(budgetChecker, times(1)).settle(eq(preDeductResult), eq(preDeductResult.amount()));
     }
 }

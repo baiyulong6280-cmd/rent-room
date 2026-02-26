@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.ai.controller.admin.model.vo.budget;
 import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
 import cn.iocoder.yudao.framework.common.validation.InEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -23,6 +24,7 @@ public class AiBudgetConfigSaveReqVO {
 
     @Schema(description = "预算金额（元）", requiredMode = Schema.RequiredMode.REQUIRED, example = "100.0")
     @NotNull(message = "预算金额不能为空")
+    @DecimalMin(value = "0", message = "预算金额不能小于 0")
     private Double budgetAmountYuan;
 
     @Schema(description = "告警阈值，JSON 数组", example = "[80,90,100]")
