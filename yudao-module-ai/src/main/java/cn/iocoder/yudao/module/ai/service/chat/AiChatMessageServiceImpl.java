@@ -93,6 +93,10 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
      * 联网搜索的结束数
      */
     private static final Integer WEB_SEARCH_COUNT = 10;
+    /**
+     * 附件预估 token 兜底（单个附件）
+     */
+    private static final int ATTACHMENT_TOKEN_ALLOWANCE = 2000;
 
     // TODO @芋艿：后续优化下对话的 Prompt 整体结构
 
@@ -178,8 +182,9 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                         .setSummary(true).setCount(WEB_SEARCH_COUNT)) : null;
 
         // 3. 预算预扣费（必须在落库之前，避免超限时留下脏数据）
+        int estimatedPromptTokens = estimatePromptTokens(conversation, historyMessages, knowledgeSegments, webSearchResponse, sendReqVO);
         AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
-                TenantContextHolder.getTenantId(), userId, estimateCost(model));
+                TenantContextHolder.getTenantId(), userId, estimateCost(model, estimatedPromptTokens));
         boolean budgetFinalized = false;
         try {
             // 4.1 插入 user 发送消息
@@ -267,8 +272,9 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
 
         // 3. 预算预扣费（必须在落库之前，避免超限时留下脏数据）
         Long tenantId = TenantContextHolder.getTenantId();
+        int estimatedPromptTokens = estimatePromptTokens(conversation, historyMessages, knowledgeSegments, webSearchResponse, sendReqVO);
         AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
-                tenantId, userId, estimateCost(model));
+                tenantId, userId, estimateCost(model, estimatedPromptTokens));
         try {
             // 4.1 插入 user 发送消息
             AiChatMessageDO userMessage = createChatMessage(conversation.getId(), null, model,
@@ -520,23 +526,56 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
         }
     }
 
+    private int estimatePromptTokens(AiChatConversationDO conversation,
+                                     List<AiChatMessageDO> historyMessages,
+                                     List<AiKnowledgeSegmentSearchRespBO> knowledgeSegments,
+                                     AiWebSearchResponse webSearchResponse,
+                                     AiChatMessageSendReqVO sendReqVO) {
+        int tokens = 0;
+        tokens += StrUtil.length(StrUtil.nullToEmpty(conversation.getSystemMessage()));
+        List<AiChatMessageDO> contextMessages = filterContextMessages(historyMessages, conversation, sendReqVO);
+        for (AiChatMessageDO contextMessage : contextMessages) {
+            tokens += StrUtil.length(StrUtil.nullToEmpty(contextMessage.getContent()));
+            tokens += estimateAttachmentTokens(contextMessage.getAttachmentUrls());
+        }
+        tokens += StrUtil.length(StrUtil.nullToEmpty(sendReqVO.getContent()));
+        if (CollUtil.isNotEmpty(knowledgeSegments)) {
+            for (AiKnowledgeSegmentSearchRespBO segment : knowledgeSegments) {
+                tokens += StrUtil.length(StrUtil.nullToEmpty(segment.getContent()));
+            }
+        }
+        if (webSearchResponse != null && CollUtil.isNotEmpty(webSearchResponse.getLists())) {
+            for (AiWebSearchResponse.WebPage page : webSearchResponse.getLists()) {
+                tokens += StrUtil.length(StrUtil.nullToEmpty(page.getTitle()));
+                tokens += StrUtil.length(StrUtil.nullToEmpty(page.getSummary()));
+                tokens += StrUtil.length(StrUtil.nullToEmpty(page.getSnippet()));
+            }
+        }
+        tokens += estimateAttachmentTokens(sendReqVO.getAttachmentUrls());
+        return tokens;
+    }
+
+    private int estimateAttachmentTokens(List<String> attachmentUrls) {
+        return CollUtil.isEmpty(attachmentUrls) ? 0 : attachmentUrls.size() * ATTACHMENT_TOKEN_ALLOWANCE;
+    }
+
     /**
      * 估算一次调用的最大费用（微元），用于预扣费
      *
-     * 策略：按 maxTokens 作为输出上限，同等量作为输入，用模型单价计算
+     * 策略：输入按估算 token（至少 maxTokens），输出按 maxTokens 上限
      * 无计费配置时返回 0（不做预算拦截）
      */
-    private long estimateCost(AiModelDO model) {
+    private long estimateCost(AiModelDO model, int estimatedPromptTokens) {
         cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelPricingDO pricing =
                 modelPricingService.getLatestModelPricing(model.getId());
         if (pricing == null) {
             return 0L;
         }
         int maxTokens = model.getMaxTokens() != null ? model.getMaxTokens() : 4096;
+        estimatedPromptTokens = Math.max(estimatedPromptTokens, maxTokens);
         long priceIn = pricing.getPriceInPer1m() != null ? pricing.getPriceInPer1m() : 0L;
         long priceOut = pricing.getPriceOutPer1m() != null ? pricing.getPriceOutPer1m() : 0L;
-        // 估算：输入 maxTokens + 输出 maxTokens
-        return Math.round((double) maxTokens * priceIn / 1_000_000
+        return Math.round((double) estimatedPromptTokens * priceIn / 1_000_000
                 + (double) maxTokens * priceOut / 1_000_000);
     }
 
