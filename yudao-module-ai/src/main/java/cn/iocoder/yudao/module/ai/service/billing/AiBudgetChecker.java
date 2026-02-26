@@ -18,7 +18,11 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.BUDGET_EXCEEDED;
@@ -26,7 +30,9 @@ import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.BUDGET_EXCEEDE
 /**
  * AI 预算校验器
  *
- * 使用 Redis Lua 脚本实现双维度（用户 + 租户）原子预扣费：
+ * 使用 Redis Lua 脚本实现多维度原子预扣费：
+ * - 用户级支持 DAILY + MONTHLY 双重限制（都要通过）
+ * - 租户级同样支持 DAILY + MONTHLY 双重限制
  * - 调用前：预扣估算费用，任一维度超额则拦截
  * - 调用后：用实际费用修正差额
  * - 失败/取消：释放预扣占用
@@ -44,42 +50,29 @@ public class AiBudgetChecker {
     private static final DateTimeFormatter PERIOD_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
     /**
-     * Lua 脚本：双维度原子预扣费
+     * Lua 脚本：多 key 原子预扣费
      *
-     * KEYS[1] = 用户 budget key
-     * KEYS[2] = 租户 budget key（可能与 KEYS[1] 相同，当 userId=0 时）
-     * ARGV[1] = 用户预算上限（-1 表示无限制）
-     * ARGV[2] = 租户预算上限（-1 表示无限制）
-     * ARGV[3] = 预扣金额
+     * KEYS[i]  = 第 i 个预算 key
+     * ARGV[1]  = 预扣金额
+     * ARGV[i+1]= 第 i 个预算上限（-1 表示无限制）
      *
      * 返回值：
      * 0 = 成功
-     * 1 = 用户预算不足
-     * 2 = 租户预算不足
+     * n = 第 n 个 key 超限（1-based）
      */
     private static final String LUA_PRE_DEDUCT = """
-            local userKey = KEYS[1]
-            local tenantKey = KEYS[2]
-            local userLimit = tonumber(ARGV[1])
-            local tenantLimit = tonumber(ARGV[2])
-            local amount = tonumber(ARGV[3])
-
-            local userUsed = tonumber(redis.call('GET', userKey) or '0')
-            local tenantUsed = tonumber(redis.call('GET', tenantKey) or '0')
-
-            -- 检查用户预算（-1 表示无限制）
-            if userLimit >= 0 and (userUsed + amount) > userLimit then
-                return 1
+            local amount = tonumber(ARGV[1])
+            for i = 1, #KEYS do
+                local limit = tonumber(ARGV[i + 1])
+                if limit >= 0 then
+                    local used = tonumber(redis.call('GET', KEYS[i]) or '0')
+                    if (used + amount) > limit then
+                        return i
+                    end
+                end
             end
-            -- 检查租户预算（-1 表示无限制）
-            if tenantLimit >= 0 and (tenantUsed + amount) > tenantLimit then
-                return 2
-            end
-
-            -- 原子扣减
-            redis.call('INCRBY', userKey, amount)
-            if userKey ~= tenantKey then
-                redis.call('INCRBY', tenantKey, amount)
+            for i = 1, #KEYS do
+                redis.call('INCRBY', KEYS[i], amount)
             end
             return 0
             """;
@@ -108,51 +101,42 @@ public class AiBudgetChecker {
      * @throws cn.iocoder.yudao.framework.common.exception.ServiceException 超预算时抛出 BUDGET_EXCEEDED
      */
     public PreDeductResult preDeduct(Long tenantId, Long userId, long estimatedCost) {
+        List<BudgetScope> scopes = new ArrayList<>();
+        scopes.addAll(buildBudgetScopes(tenantId, userId));
+        if (!Objects.equals(userId, 0L)) {
+            scopes.addAll(buildBudgetScopes(tenantId, 0L));
+        }
+        LocalDateTime userPeriodStart = selectPrimaryPeriodStart(scopes, userId);
+        LocalDateTime tenantPeriodStart = selectPrimaryPeriodStart(scopes, 0L);
         if (estimatedCost <= 0) {
             return new PreDeductResult(tenantId, userId, 0,
-                    getCurrentPeriodStart(userId), getCurrentPeriodStart(0L));
+                    userPeriodStart, tenantPeriodStart, scopes);
         }
 
-        LocalDateTime periodStart = getCurrentPeriodStart(userId);
-        String periodStr = periodStart.format(PERIOD_FORMAT);
-
-        // 租户维度的 periodStart 可能与用户维度不同
-        LocalDateTime tenantPeriodStart = getCurrentPeriodStart(0L);
-        String tenantPeriodStr = tenantPeriodStart.format(PERIOD_FORMAT);
-
-        // 构建 Redis Key
-        String userKey = buildKey(tenantId, userId, periodStr);
-        String tenantKey = buildKey(tenantId, 0L, tenantPeriodStr);
-
-        // 查询预算上限（按用户实际配置的周期类型）
-        long userLimit = getBudgetLimit(userId);
-        long tenantLimit = getBudgetLimit(0L);
-
-        // 冷启动：确保 Redis key 存在
-        ensureRedisKey(userKey, userId, periodStart);
-        if (!userKey.equals(tenantKey)) {
-            ensureRedisKey(tenantKey, 0L, tenantPeriodStart);
+        List<BudgetKeyAggregate> aggregates = aggregateBudgetKeys(scopes);
+        for (BudgetKeyAggregate aggregate : aggregates) {
+            ensureRedisKey(aggregate);
         }
 
-        // 执行 Lua 脚本
-        List<String> keys = new ArrayList<>(2);
-        keys.add(userKey);
-        keys.add(tenantKey);
-        Long result = stringRedisTemplate.execute(PRE_DEDUCT_SCRIPT, keys,
-                String.valueOf(userLimit), String.valueOf(tenantLimit), String.valueOf(estimatedCost));
-
-        if (result != null && result == 1L) {
-            // 记录超限拦截事件
-            logBlockEvent(userId, periodStart, userLimit);
-            throw exception(BUDGET_EXCEEDED);
+        List<String> keys = aggregates.stream().map(BudgetKeyAggregate::key).collect(Collectors.toList());
+        List<String> args = new ArrayList<>();
+        args.add(String.valueOf(estimatedCost));
+        for (BudgetKeyAggregate aggregate : aggregates) {
+            args.add(String.valueOf(aggregate.limit()));
         }
-        if (result != null && result == 2L) {
-            // 记录租户级超限拦截事件
-            logBlockEvent(0L, tenantPeriodStart, tenantLimit);
+        Long result = stringRedisTemplate.execute(PRE_DEDUCT_SCRIPT, keys, args.toArray());
+
+        if (result != null && result > 0) {
+            int exceededIndex = Math.toIntExact(result - 1);
+            if (exceededIndex >= 0 && exceededIndex < aggregates.size()) {
+                BudgetKeyAggregate exceeded = aggregates.get(exceededIndex);
+                logBlockEvent(exceeded.ownerId(), exceeded.periodStart(), exceeded.limit());
+            }
             throw exception(BUDGET_EXCEEDED);
         }
 
-        return new PreDeductResult(tenantId, userId, estimatedCost, periodStart, tenantPeriodStart);
+        return new PreDeductResult(tenantId, userId, estimatedCost,
+                userPeriodStart, tenantPeriodStart, scopes);
     }
 
     /**
@@ -168,33 +152,33 @@ public class AiBudgetChecker {
      */
     public void settle(PreDeductResult preDeductResult, long actualCost) {
         long delta = actualCost - preDeductResult.amount();
-        String periodStr = preDeductResult.periodStart().format(PERIOD_FORMAT);
-        String userKey = buildKey(preDeductResult.tenantId(), preDeductResult.userId(), periodStr);
-
-        LocalDateTime tenantPeriodStart = preDeductResult.tenantPeriodStart();
-        String tenantPeriodStr = tenantPeriodStart.format(PERIOD_FORMAT);
-        String tenantKey = buildKey(preDeductResult.tenantId(), 0L, tenantPeriodStr);
+        List<BudgetScope> scopes = resolveScopes(preDeductResult);
+        List<BudgetKeyAggregate> aggregates = aggregateBudgetKeys(scopes);
 
         if (delta != 0) {
             // Redis 修正
-            stringRedisTemplate.opsForValue().increment(userKey, delta);
-            if (!userKey.equals(tenantKey)) {
-                stringRedisTemplate.opsForValue().increment(tenantKey, delta);
+            for (BudgetKeyAggregate aggregate : aggregates) {
+                stringRedisTemplate.opsForValue().increment(aggregate.key(), delta);
             }
         }
 
         // DB 落库（最终准绳）
         if (actualCost > 0) {
-            budgetUsageService.addUsage(preDeductResult.userId(), preDeductResult.periodStart(), actualCost);
-            if (preDeductResult.userId() != 0L) {
-                budgetUsageService.addUsage(0L, tenantPeriodStart, actualCost);
+            Map<String, BudgetScope> usageScopes = new LinkedHashMap<>();
+            for (BudgetScope scope : scopes) {
+                String usageKey = scope.ownerId() + ":" + scope.periodStart();
+                usageScopes.putIfAbsent(usageKey, scope);
+            }
+            for (BudgetScope scope : usageScopes.values()) {
+                budgetUsageService.addUsage(scope.ownerId(), scope.periodStart(), actualCost);
             }
         }
 
         // 阈值告警检查
-        checkThresholdAlerts(preDeductResult.userId(), preDeductResult.periodStart(), actualCost);
-        if (preDeductResult.userId() != 0L) {
-            checkThresholdAlerts(0L, tenantPeriodStart, actualCost);
+        for (BudgetScope scope : scopes) {
+            if (scope.budgetAmount() > 0) {
+                checkThresholdAlerts(scope, actualCost);
+            }
         }
     }
 
@@ -205,15 +189,9 @@ public class AiBudgetChecker {
         if (preDeductResult.amount() <= 0) {
             return;
         }
-        String periodStr = preDeductResult.periodStart().format(PERIOD_FORMAT);
-        String userKey = buildKey(preDeductResult.tenantId(), preDeductResult.userId(), periodStr);
-
-        String tenantPeriodStr = preDeductResult.tenantPeriodStart().format(PERIOD_FORMAT);
-        String tenantKey = buildKey(preDeductResult.tenantId(), 0L, tenantPeriodStr);
-
-        stringRedisTemplate.opsForValue().increment(userKey, -preDeductResult.amount());
-        if (!userKey.equals(tenantKey)) {
-            stringRedisTemplate.opsForValue().increment(tenantKey, -preDeductResult.amount());
+        List<BudgetScope> scopes = resolveScopes(preDeductResult);
+        for (BudgetKeyAggregate aggregate : aggregateBudgetKeys(scopes)) {
+            stringRedisTemplate.opsForValue().increment(aggregate.key(), -preDeductResult.amount());
         }
     }
 
@@ -224,25 +202,21 @@ public class AiBudgetChecker {
      *
      * 逻辑：扣费前的使用比例 < 阈值 <= 扣费后的使用比例 → 触发告警
      */
-    private void checkThresholdAlerts(Long userId, LocalDateTime periodStart, long deltaAmount) {
+    private void checkThresholdAlerts(BudgetScope scope, long deltaAmount) {
         try {
-            AiBudgetConfigDO config = getEnabledBudgetConfig(userId);
-            if (config == null) {
-                return;
-            }
-            long budgetAmount = config.getBudgetAmount();
+            long budgetAmount = scope.budgetAmount();
             if (budgetAmount <= 0) {
                 return;
             }
 
             // 解析阈值配置
-            List<Integer> thresholds = parseThresholds(config.getAlertThresholds());
+            List<Integer> thresholds = parseThresholds(scope.alertThresholds());
             if (thresholds.isEmpty()) {
                 return;
             }
 
             // 查询当前已用金额
-            AiBudgetUsageDO usage = budgetUsageService.getUsage(userId, periodStart);
+            AiBudgetUsageDO usage = budgetUsageService.getUsage(scope.ownerId(), scope.periodStart());
             long usedAmount = usage != null ? usage.getUsedAmount() : 0L;
             long previousUsed = usedAmount - deltaAmount;
 
@@ -253,9 +227,9 @@ public class AiBudgetChecker {
                 // 本次扣费跨越了该阈值
                 if (previousPercent < threshold && currentPercent >= threshold) {
                     AiBudgetLogDO logDO = AiBudgetLogDO.builder()
-                            .userId(userId)
+                            .userId(scope.ownerId())
                             .eventType(AiBudgetEventTypeEnum.THRESHOLD_ALERT.getType())
-                            .periodStartTime(periodStart)
+                            .periodStartTime(scope.periodStart())
                             .currency("CNY")
                             .budgetAmount(budgetAmount)
                             .usedAmount(usedAmount)
@@ -264,12 +238,13 @@ public class AiBudgetChecker {
                                     threshold, usedAmount, budgetAmount))
                             .build();
                     budgetLogService.createBudgetLog(logDO);
-                    log.warn("[checkThresholdAlerts][userId({}) 预算使用达到{}%阈值, used={}, budget={}]",
-                            userId, threshold, usedAmount, budgetAmount);
+                    log.warn("[checkThresholdAlerts][userId({}) periodType({}) 预算使用达到{}%阈值, used={}, budget={}]",
+                            scope.ownerId(), scope.periodType(), threshold, usedAmount, budgetAmount);
                 }
             }
         } catch (Exception e) {
-            log.error("[checkThresholdAlerts][userId({}) 阈值告警检查失败]", userId, e);
+            log.error("[checkThresholdAlerts][userId({}) periodType({}) 阈值告警检查失败]",
+                    scope.ownerId(), scope.periodType(), e);
         }
     }
 
@@ -315,69 +290,125 @@ public class AiBudgetChecker {
         return KEY_PREFIX + tenantId + ":" + userId + ":" + periodStr;
     }
 
-    /**
-     * 获取用户当前周期的开始时间
-     *
-     * 根据用户实际配置的周期类型决定：
-     * - DAILY：滚动 24 小时（锚点为预算配置创建时间）
-     * - MONTHLY：按预算配置创建时刻锚定的自然月
-     */
-    private LocalDateTime getCurrentPeriodStart(Long userId) {
-        AiBudgetConfigDO config = getEnabledBudgetConfig(userId);
-        return AiBudgetPeriodHelper.getCurrentPeriodStart(config);
+    private List<AiBudgetConfigDO> getEnabledBudgetConfigs(Long userId) {
+        List<AiBudgetConfigDO> configs = new ArrayList<>(2);
+        AiBudgetConfigDO monthly = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.MONTHLY.getType());
+        if (monthly != null && CommonStatusEnum.ENABLE.getStatus().equals(monthly.getStatus())) {
+            configs.add(monthly);
+        }
+        AiBudgetConfigDO daily = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.DAILY.getType());
+        if (daily != null && CommonStatusEnum.ENABLE.getStatus().equals(daily.getStatus())) {
+            configs.add(daily);
+        }
+        return configs;
     }
 
-    /**
-     * 获取预算上限，-1 表示无限制（未配置预算）
-     *
-     * 优先查 MONTHLY，没有则查 DAILY
-     */
-    private long getBudgetLimit(Long userId) {
-        AiBudgetConfigDO config = getEnabledBudgetConfig(userId);
-        if (config == null) {
-            return -1L; // 无限制
+    private List<BudgetScope> buildBudgetScopes(Long tenantId, Long ownerId) {
+        List<AiBudgetConfigDO> configs = getEnabledBudgetConfigs(ownerId);
+        List<BudgetScope> scopes = new ArrayList<>();
+        if (configs.isEmpty()) {
+            LocalDateTime periodStart = AiBudgetPeriodHelper.getCurrentPeriodStart(null);
+            scopes.add(new BudgetScope(ownerId, AiBudgetPeriodTypeEnum.MONTHLY.getType(), periodStart,
+                    buildKey(tenantId, ownerId, periodStart.format(PERIOD_FORMAT)), -1L, null));
+            return scopes;
         }
-        return config.getBudgetAmount();
+        for (AiBudgetConfigDO config : configs) {
+            LocalDateTime periodStart = AiBudgetPeriodHelper.getCurrentPeriodStart(config);
+            scopes.add(new BudgetScope(ownerId, config.getPeriodType(), periodStart,
+                    buildKey(tenantId, ownerId, periodStart.format(PERIOD_FORMAT)),
+                    config.getBudgetAmount(), config.getAlertThresholds()));
+        }
+        return scopes;
     }
 
-    /**
-     * 获取用户启用的预算配置，优先 MONTHLY，没有或禁用则查 DAILY
-     */
-    private AiBudgetConfigDO getEnabledBudgetConfig(Long userId) {
-        AiBudgetConfigDO config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.MONTHLY.getType());
-        if (config != null && CommonStatusEnum.ENABLE.getStatus().equals(config.getStatus())) {
-            return config;
+    private LocalDateTime selectPrimaryPeriodStart(List<BudgetScope> scopes, Long ownerId) {
+        for (BudgetScope scope : scopes) {
+            if (Objects.equals(scope.ownerId(), ownerId)
+                    && AiBudgetPeriodTypeEnum.MONTHLY.getType().equals(scope.periodType())) {
+                return scope.periodStart();
+            }
         }
-        config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.DAILY.getType());
-        if (config != null && CommonStatusEnum.ENABLE.getStatus().equals(config.getStatus())) {
-            return config;
+        for (BudgetScope scope : scopes) {
+            if (Objects.equals(scope.ownerId(), ownerId)
+                    && AiBudgetPeriodTypeEnum.DAILY.getType().equals(scope.periodType())) {
+                return scope.periodStart();
+            }
         }
-        return null;
+        return AiBudgetPeriodHelper.getCurrentPeriodStart(null);
+    }
+
+    private List<BudgetScope> resolveScopes(PreDeductResult preDeductResult) {
+        if (preDeductResult.scopes() != null && !preDeductResult.scopes().isEmpty()) {
+            return preDeductResult.scopes();
+        }
+        List<BudgetScope> scopes = new ArrayList<>();
+        String userKey = buildKey(preDeductResult.tenantId(), preDeductResult.userId(),
+                preDeductResult.periodStart().format(PERIOD_FORMAT));
+        scopes.add(new BudgetScope(preDeductResult.userId(), AiBudgetPeriodTypeEnum.MONTHLY.getType(),
+                preDeductResult.periodStart(), userKey, -1L, null));
+        if (!Objects.equals(preDeductResult.userId(), 0L)) {
+            String tenantKey = buildKey(preDeductResult.tenantId(), 0L,
+                    preDeductResult.tenantPeriodStart().format(PERIOD_FORMAT));
+            scopes.add(new BudgetScope(0L, AiBudgetPeriodTypeEnum.MONTHLY.getType(),
+                    preDeductResult.tenantPeriodStart(), tenantKey, -1L, null));
+        }
+        return scopes;
+    }
+
+    private List<BudgetKeyAggregate> aggregateBudgetKeys(List<BudgetScope> scopes) {
+        Map<String, BudgetKeyAggregate> keyMap = new LinkedHashMap<>();
+        for (BudgetScope scope : scopes) {
+            BudgetKeyAggregate current = keyMap.get(scope.redisKey());
+            if (current == null) {
+                keyMap.put(scope.redisKey(), new BudgetKeyAggregate(scope.redisKey(), scope.ownerId(),
+                        scope.periodStart(), scope.periodType(), scope.budgetAmount()));
+                continue;
+            }
+            if (scope.budgetAmount() >= 0
+                    && (current.limit() < 0 || scope.budgetAmount() < current.limit())) {
+                keyMap.put(scope.redisKey(), new BudgetKeyAggregate(scope.redisKey(), scope.ownerId(),
+                        scope.periodStart(), scope.periodType(), scope.budgetAmount()));
+            }
+        }
+        return new ArrayList<>(keyMap.values());
     }
 
     /**
      * 冷启动：Redis key 不存在时从 DB 加载
      */
-    private void ensureRedisKey(String key, Long userId, LocalDateTime periodStart) {
-        Boolean exists = stringRedisTemplate.hasKey(key);
+    private void ensureRedisKey(BudgetKeyAggregate aggregate) {
+        Boolean exists = stringRedisTemplate.hasKey(aggregate.key());
         if (Boolean.TRUE.equals(exists)) {
             return;
         }
         // 从 DB 加载
-        AiBudgetUsageDO usage = budgetUsageService.getUsage(userId, periodStart);
+        AiBudgetUsageDO usage = budgetUsageService.getUsage(aggregate.ownerId(), aggregate.periodStart());
         long usedAmount = usage != null ? usage.getUsedAmount() : 0L;
         // 过期时间：DAILY 2 天，MONTHLY 35 天
-        AiBudgetConfigDO config = getEnabledBudgetConfig(userId);
-        Duration ttl = (config != null && AiBudgetPeriodTypeEnum.DAILY.getType().equals(config.getPeriodType()))
+        Duration ttl = AiBudgetPeriodTypeEnum.DAILY.getType().equals(aggregate.periodType())
                 ? Duration.ofDays(2) : Duration.ofDays(35);
-        stringRedisTemplate.opsForValue().setIfAbsent(key, String.valueOf(usedAmount), ttl);
+        stringRedisTemplate.opsForValue().setIfAbsent(aggregate.key(), String.valueOf(usedAmount), ttl);
     }
 
     /**
      * 预扣凭证
      */
     public record PreDeductResult(Long tenantId, Long userId, long amount,
-                                  LocalDateTime periodStart, LocalDateTime tenantPeriodStart) {
+                                  LocalDateTime periodStart, LocalDateTime tenantPeriodStart,
+                                  List<BudgetScope> scopes) {
+
+        public PreDeductResult(Long tenantId, Long userId, long amount,
+                               LocalDateTime periodStart, LocalDateTime tenantPeriodStart) {
+            this(tenantId, userId, amount, periodStart, tenantPeriodStart, List.of());
+        }
+    }
+
+    private record BudgetScope(Long ownerId, String periodType, LocalDateTime periodStart,
+                               String redisKey, long budgetAmount, String alertThresholds) {
+    }
+
+    private record BudgetKeyAggregate(String key, Long ownerId, LocalDateTime periodStart,
+                                      String periodType, long limit) {
     }
 
 }
