@@ -95,7 +95,7 @@ public class AiMindMapServiceImpl implements AiMindMapService {
         // 2. 预算预扣费（必须在落库之前，避免超限时留下脏数据）
         Long tenantId = TenantContextHolder.getTenantId();
         AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
-                tenantId, userId, estimateCost(model));
+                tenantId, userId, estimateCost(model, systemMessage, generateReqVO.getPrompt()));
         try {
             // 3. 插入思维导图信息
             AiMindMapDO mindMapDO = BeanUtils.toBean(generateReqVO, AiMindMapDO.class, mindMap -> mindMap.setUserId(userId)
@@ -238,16 +238,25 @@ public class AiMindMapServiceImpl implements AiMindMapService {
         }
     }
 
-    private long estimateCost(AiModelDO model) {
+    private long estimateCost(AiModelDO model, String... promptSegments) {
         cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelPricingDO pricing =
                 modelPricingService.getLatestModelPricing(model.getId());
         if (pricing == null) {
             return 0L;
         }
         int maxTokens = model.getMaxTokens() != null ? model.getMaxTokens() : 4096;
+        int estimatedPromptTokens = 0;
+        if (promptSegments != null) {
+            for (String promptSegment : promptSegments) {
+                if (StrUtil.isNotBlank(promptSegment)) {
+                    estimatedPromptTokens += promptSegment.length();
+                }
+            }
+        }
+        estimatedPromptTokens = Math.max(estimatedPromptTokens, maxTokens);
         long priceIn = pricing.getPriceInPer1m() != null ? pricing.getPriceInPer1m() : 0L;
         long priceOut = pricing.getPriceOutPer1m() != null ? pricing.getPriceOutPer1m() : 0L;
-        return Math.round((double) maxTokens * priceIn / 1_000_000
+        return Math.round((double) estimatedPromptTokens * priceIn / 1_000_000
                 + (double) maxTokens * priceOut / 1_000_000);
     }
 
