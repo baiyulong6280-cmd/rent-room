@@ -93,7 +93,7 @@ public class AiMindMapServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
-    public void testGenerateMindMap_cancelShouldReleasePreDeduct() {
+    public void testGenerateMindMap_cancelShouldSettlePreDeduct() {
         AiMindMapGenerateReqVO reqVO = new AiMindMapGenerateReqVO();
         reqVO.setPrompt("测试取消");
 
@@ -101,8 +101,9 @@ public class AiMindMapServiceImplTest extends BaseMockitoUnitTest {
         Disposable disposable = flux.subscribe();
         disposable.dispose();
 
-        verify(budgetChecker, timeout(1000).times(1)).release(eq(preDeductResult));
-        verify(callLogService, never()).createCallLog(any());
+        verify(callLogService, timeout(1000).times(1)).createCallLog(any());
+        verify(budgetChecker, timeout(1000).times(1)).settle(eq(preDeductResult), eq(0L));
+        verify(budgetChecker, never()).release(eq(preDeductResult));
     }
 
     @Test

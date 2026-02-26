@@ -206,13 +206,14 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 // 失败时也记录调用日志
                 createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
                         requestTime, null, AiCallStatusEnum.FAIL.getStatus(), e.getMessage(),
-                        null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
+                        null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null,
+                        false);
                 throw e;
             }
             // 提取 usage 并记录成功日志
             createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
                     requestTime, chatResponse, AiCallStatusEnum.SUCCESS.getStatus(), null,
-                    null, null, null, null, null, null, preDeductResult);
+                    null, null, null, null, null, null, preDeductResult, false);
             budgetFinalized = true;
 
             // 4.4 更新响应内容
@@ -334,12 +335,14 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                     // 记录调用日志
                     createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
                             requestTime, lastChunkRef.get(), AiCallStatusEnum.SUCCESS.getStatus(), null,
-                            null, null, null, null, null, null, preDeductResult);
+                            null, null, null, null, null, null, preDeductResult,
+                            StrUtil.isNotEmpty(contentBuffer));
                 });
             }).doOnError(throwable -> {
                 log.error("[sendChatMessageStream][userId({}) sendReqVO({}) 发生异常]", userId, sendReqVO, throwable);
                 // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
                 TenantUtils.execute(tenantId, () -> {
+                    boolean budgetFinalized = false;
                     try {
                         // 如果有内容，则更新内容
                         if (StrUtil.isNotEmpty(contentBuffer)) {
@@ -351,17 +354,21 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                         }
                         // 记录调用日志（失败）
                         createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
-                                requestTime, null, AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(),
-                                null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
+                                requestTime, lastChunkRef.get(), AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(),
+                                null, null, null, null, null, null, preDeductResult,
+                                StrUtil.isNotEmpty(contentBuffer));
+                        budgetFinalized = true;
                     } finally {
-                        // 无论中间步骤是否异常，都必须释放预扣费
-                        budgetChecker.release(preDeductResult);
+                        if (!budgetFinalized) {
+                            budgetChecker.release(preDeductResult);
+                        }
                     }
                 });
             }).doOnCancel(() -> {
                 log.info("[sendChatMessageStream][userId({}) sendReqVO({}) 取消请求]", userId, sendReqVO);
                 // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
                 TenantUtils.execute(tenantId, () -> {
+                    boolean budgetFinalized = false;
                     try {
                         // 如果有内容，则更新内容
                         if (StrUtil.isNotEmpty(contentBuffer)) {
@@ -373,11 +380,14 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                         }
                         // 记录调用日志（取消）
                         createChatCallLog(model, userId, assistantMessage.getId(), conversation.getId(),
-                                requestTime, null, AiCallStatusEnum.CANCEL.getStatus(), null,
-                                null, null, null, null, null, AiTokenSourceEnum.NONE.getSource(), null);
+                                requestTime, lastChunkRef.get(), AiCallStatusEnum.CANCEL.getStatus(), null,
+                                null, null, null, null, null, null, preDeductResult,
+                                StrUtil.isNotEmpty(contentBuffer));
+                        budgetFinalized = true;
                     } finally {
-                        // 无论中间步骤是否异常，都必须释放预扣费
-                        budgetChecker.release(preDeductResult);
+                        if (!budgetFinalized) {
+                            budgetChecker.release(preDeductResult);
+                        }
                     }
                 });
             }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.CHAT_STREAM_ERROR)));
@@ -404,6 +414,7 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
      * @param reasoningTokens 推理 token
      * @param totalTokens     总 token
      * @param tokenSource     token 来源（传 null 则自动判断）
+     * @param hasOutputContent 是否有输出内容（用于失败/取消时无 usage 的估算兜底）
      */
     private void createChatCallLog(AiModelDO model, Long userId, Long bizId, Long conversationId,
                                    LocalDateTime requestTime, ChatResponse chatResponse,
@@ -411,7 +422,8 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                                    Integer promptTokens, Integer completionTokens,
                                    Integer cachedTokens, Integer reasoningTokens,
                                    Integer totalTokens, String tokenSource,
-                                   AiBudgetChecker.PreDeductResult preDeductResult) {
+                                   AiBudgetChecker.PreDeductResult preDeductResult,
+                                   boolean hasOutputContent) {
         AiModelCallLogDO callLog = null;
         try {
             LocalDateTime responseTime = LocalDateTime.now();
@@ -438,9 +450,12 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
             if (tokenSource == null) {
                 tokenSource = AiTokenSourceEnum.NONE.getSource();
             }
-            if (AiCallStatusEnum.SUCCESS.getStatus().equals(status)
-                    && preDeductResult != null
-                    && !AiTokenSourceEnum.PROVIDER.getSource().equals(tokenSource)) {
+            boolean shouldUseEstimated = preDeductResult != null
+                    && !AiTokenSourceEnum.PROVIDER.getSource().equals(tokenSource)
+                    && (AiCallStatusEnum.SUCCESS.getStatus().equals(status)
+                    || ((AiCallStatusEnum.FAIL.getStatus().equals(status)
+                    || AiCallStatusEnum.CANCEL.getStatus().equals(status)) && hasOutputContent));
+            if (shouldUseEstimated) {
                 tokenSource = AiTokenSourceEnum.ESTIMATED.getSource();
                 costAmount = preDeductResult.amount();
             }

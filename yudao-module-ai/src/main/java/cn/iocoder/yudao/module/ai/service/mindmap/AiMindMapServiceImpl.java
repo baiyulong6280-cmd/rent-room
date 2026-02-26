@@ -124,26 +124,33 @@ public class AiMindMapServiceImpl implements AiMindMapService {
                     // 记录调用日志 + 预算结算
                     createCallLog(model, userId, mindMapDO.getId(), AiBizTypeEnum.MIND_MAP.getType(),
                             requestTime, lastChunkRef.get(), AiCallStatusEnum.SUCCESS.getStatus(), null,
-                            preDeductResult);
+                            preDeductResult, contentBuffer.length() > 0);
                 });
             }).doOnError(throwable -> {
                 log.error("[generateMindMap][generateReqVO({}) 发生异常]", generateReqVO, throwable);
                 // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
                 TenantUtils.execute(tenantId, () -> {
+                    boolean budgetFinalized = false;
                     try {
                         mindMapMapper.updateById(new AiMindMapDO().setId(mindMapDO.getId()).setErrorMessage(throwable.getMessage()));
                         // 记录调用日志（失败）
                         createCallLog(model, userId, mindMapDO.getId(), AiBizTypeEnum.MIND_MAP.getType(),
-                                requestTime, null, AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(), null);
+                                requestTime, lastChunkRef.get(), AiCallStatusEnum.FAIL.getStatus(), throwable.getMessage(),
+                                preDeductResult, contentBuffer.length() > 0);
+                        budgetFinalized = true;
                     } finally {
-                        // 无论中间步骤是否异常，都必须释放预扣费
-                        budgetChecker.release(preDeductResult);
+                        if (!budgetFinalized) {
+                            budgetChecker.release(preDeductResult);
+                        }
                     }
                 });
             }).doOnCancel(() -> {
                 log.info("[generateMindMap][generateReqVO({}) 取消请求]", generateReqVO);
                 // 使用捕获的 tenantId，因为 Flux 异步无法透传租户
-                TenantUtils.execute(tenantId, () -> budgetChecker.release(preDeductResult));
+                TenantUtils.execute(tenantId, () -> createCallLog(model, userId, mindMapDO.getId(),
+                        AiBizTypeEnum.MIND_MAP.getType(), requestTime, lastChunkRef.get(),
+                        AiCallStatusEnum.CANCEL.getStatus(), null, preDeductResult,
+                        contentBuffer.length() > 0));
             }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.WRITE_STREAM_ERROR)));
         } catch (Exception e) {
             // preDeduct 之后、Flux 回调挂钩之前发生异常时，需要主动释放预扣
@@ -155,7 +162,8 @@ public class AiMindMapServiceImpl implements AiMindMapService {
     private void createCallLog(AiModelDO model, Long userId, Long bizId, String bizType,
                                LocalDateTime requestTime, ChatResponse chatResponse,
                                String status, String errorMessage,
-                               AiBudgetChecker.PreDeductResult preDeductResult) {
+                               AiBudgetChecker.PreDeductResult preDeductResult,
+                               boolean hasOutputContent) {
         AiModelCallLogDO callLog = null;
         try {
             LocalDateTime responseTime = LocalDateTime.now();
@@ -172,9 +180,12 @@ public class AiMindMapServiceImpl implements AiMindMapService {
                 totalTokens = usage.getTotalTokens();
                 tokenSource = AiTokenSourceEnum.PROVIDER.getSource();
             }
-            if (AiCallStatusEnum.SUCCESS.getStatus().equals(status)
-                    && preDeductResult != null
-                    && !AiTokenSourceEnum.PROVIDER.getSource().equals(tokenSource)) {
+            boolean shouldUseEstimated = preDeductResult != null
+                    && !AiTokenSourceEnum.PROVIDER.getSource().equals(tokenSource)
+                    && (AiCallStatusEnum.SUCCESS.getStatus().equals(status)
+                    || ((AiCallStatusEnum.FAIL.getStatus().equals(status)
+                    || AiCallStatusEnum.CANCEL.getStatus().equals(status)) && hasOutputContent));
+            if (shouldUseEstimated) {
                 tokenSource = AiTokenSourceEnum.ESTIMATED.getSource();
                 costAmount = preDeductResult.amount();
             }
