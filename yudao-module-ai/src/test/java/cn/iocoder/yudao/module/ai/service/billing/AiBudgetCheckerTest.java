@@ -379,6 +379,36 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testSettle_actualCostGreaterThanPreDeduct_withLimit_shouldCapByBudget() {
+        AiBudgetConfigDO userConfig = AiBudgetConfigDO.builder()
+                .userId(100L).periodType("MONTHLY").budgetAmount(6_000L)
+                .status(CommonStatusEnum.ENABLE.getStatus()).build();
+        lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
+        when(budgetConfigService.getBudgetConfig(eq(100L), eq(AiBudgetPeriodTypeEnum.MONTHLY.getType())))
+                .thenReturn(userConfig);
+        when(budgetConfigService.getBudgetConfig(eq(100L), eq(AiBudgetPeriodTypeEnum.DAILY.getType())))
+                .thenReturn(null);
+        when(budgetConfigService.getBudgetConfig(eq(0L), eq(AiBudgetPeriodTypeEnum.MONTHLY.getType())))
+                .thenReturn(null);
+        when(budgetConfigService.getBudgetConfig(eq(0L), eq(AiBudgetPeriodTypeEnum.DAILY.getType())))
+                .thenReturn(null);
+        lenient().when(stringRedisTemplate.hasKey(anyString())).thenReturn(true);
+        // 第一次 execute：preDeduct 成功；第二次 execute：settle 正向补扣仅允许 1000
+        lenient().when(stringRedisTemplate.execute(Mockito.<RedisScript<Long>>any(), anyList(),
+                any(String.class), any(String.class), any(String.class)))
+                .thenReturn(0L, 1000L);
+
+        AiBudgetChecker.PreDeductResult preDeduct = budgetChecker.preDeduct(1L, 100L, 5000L);
+
+        // 期望补扣 3000，但受限额仅补扣 1000，最终记账 6000
+        budgetChecker.settle(preDeduct, 8000L);
+
+        verify(budgetUsageService).addUsage(eq(100L), any(LocalDateTime.class), eq(6000L));
+        verify(budgetUsageService).addUsage(eq(0L), any(LocalDateTime.class), eq(6000L));
+        verify(valueOperations, never()).increment(anyString(), eq(3000L));
+    }
+
+    @Test
     public void testSettle_shouldUseTenantPeriodStartFromPreDeductResult() {
         lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
 
