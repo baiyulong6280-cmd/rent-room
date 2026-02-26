@@ -78,6 +78,40 @@ public class AiBudgetChecker {
             """;
 
     private static final DefaultRedisScript<Long> PRE_DEDUCT_SCRIPT = new DefaultRedisScript<>(LUA_PRE_DEDUCT, Long.class);
+    /**
+     * Lua 脚本：settle 正向补扣（delta > 0）时，按多 key 最小剩余额度原子补扣。
+     *
+     * KEYS[i]  = 第 i 个预算 key
+     * ARGV[1]  = 期望补扣金额 delta
+     * ARGV[i+1]= 第 i 个预算上限（-1 表示无限制）
+     *
+     * 返回值：实际补扣金额（0 ~ delta）
+     */
+    private static final String LUA_SETTLE_POSITIVE = """
+            local delta = tonumber(ARGV[1])
+            local applied = delta
+            for i = 1, #KEYS do
+                local limit = tonumber(ARGV[i + 1])
+                if limit >= 0 then
+                    local used = tonumber(redis.call('GET', KEYS[i]) or '0')
+                    local remain = limit - used
+                    if remain < applied then
+                        applied = remain
+                    end
+                end
+            end
+            if applied < 0 then
+                applied = 0
+            end
+            if applied > 0 then
+                for i = 1, #KEYS do
+                    redis.call('INCRBY', KEYS[i], applied)
+                end
+            end
+            return applied
+            """;
+
+    private static final DefaultRedisScript<Long> SETTLE_POSITIVE_SCRIPT = new DefaultRedisScript<>(LUA_SETTLE_POSITIVE, Long.class);
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
@@ -154,30 +188,34 @@ public class AiBudgetChecker {
         long delta = actualCost - preDeductResult.amount();
         List<BudgetScope> scopes = resolveScopes(preDeductResult);
         List<BudgetKeyAggregate> aggregates = aggregateBudgetKeys(scopes);
+        long settledCost = actualCost;
 
-        if (delta != 0) {
-            // Redis 修正
+        if (delta > 0) {
+            long appliedDelta = applyPositiveDelta(aggregates, delta);
+            settledCost = preDeductResult.amount() + appliedDelta;
+        } else if (delta < 0) {
+            // Redis 退回差额
             for (BudgetKeyAggregate aggregate : aggregates) {
                 stringRedisTemplate.opsForValue().increment(aggregate.key(), delta);
             }
         }
 
         // DB 落库（最终准绳）
-        if (actualCost > 0) {
+        if (settledCost > 0) {
             Map<String, BudgetScope> usageScopes = new LinkedHashMap<>();
             for (BudgetScope scope : scopes) {
                 String usageKey = scope.ownerId() + ":" + scope.periodStart();
                 usageScopes.putIfAbsent(usageKey, scope);
             }
             for (BudgetScope scope : usageScopes.values()) {
-                budgetUsageService.addUsage(scope.ownerId(), scope.periodStart(), actualCost);
+                budgetUsageService.addUsage(scope.ownerId(), scope.periodStart(), settledCost);
             }
         }
 
         // 阈值告警检查
         for (BudgetScope scope : scopes) {
             if (scope.budgetAmount() > 0) {
-                checkThresholdAlerts(scope, actualCost);
+                checkThresholdAlerts(scope, settledCost);
             }
         }
     }
@@ -371,6 +409,42 @@ public class AiBudgetChecker {
             }
         }
         return new ArrayList<>(keyMap.values());
+    }
+
+    /**
+     * settle 阶段正向补扣（actual > preDeduct）时：
+     * - 有限额：使用 Lua 原子补扣，确保不突破任一维度硬限额
+     * - 无限额：直接补扣
+     *
+     * @return 实际补扣金额（0 ~ delta）
+     */
+    private long applyPositiveDelta(List<BudgetKeyAggregate> aggregates, long delta) {
+        boolean hasLimit = false;
+        for (BudgetKeyAggregate aggregate : aggregates) {
+            ensureRedisKey(aggregate);
+            if (aggregate.limit() >= 0) {
+                hasLimit = true;
+            }
+        }
+        if (!hasLimit) {
+            for (BudgetKeyAggregate aggregate : aggregates) {
+                stringRedisTemplate.opsForValue().increment(aggregate.key(), delta);
+            }
+            return delta;
+        }
+
+        List<String> keys = aggregates.stream().map(BudgetKeyAggregate::key).collect(Collectors.toList());
+        List<String> args = new ArrayList<>();
+        args.add(String.valueOf(delta));
+        for (BudgetKeyAggregate aggregate : aggregates) {
+            args.add(String.valueOf(aggregate.limit()));
+        }
+        Long result = stringRedisTemplate.execute(SETTLE_POSITIVE_SCRIPT, keys, args.toArray());
+        long appliedDelta = result == null ? 0L : Math.max(0L, Math.min(delta, result));
+        if (appliedDelta < delta) {
+            log.warn("[applyPositiveDelta][delta({}) appliedDelta({}) 触发硬限额保护，超出部分不再计入预算]", delta, appliedDelta);
+        }
+        return appliedDelta;
     }
 
     /**

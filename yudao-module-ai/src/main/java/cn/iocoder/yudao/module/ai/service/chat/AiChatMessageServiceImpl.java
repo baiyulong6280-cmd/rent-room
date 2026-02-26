@@ -93,11 +93,6 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
      * 联网搜索的结束数
      */
     private static final Integer WEB_SEARCH_COUNT = 10;
-    /**
-     * 附件预估 token 兜底（单个附件）
-     */
-    private static final int ATTACHMENT_TOKEN_ALLOWANCE = 2000;
-
     // TODO @芋艿：后续优化下对话的 Prompt 整体结构
 
     /**
@@ -181,25 +176,25 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 webSearchClient.search(new AiWebSearchRequest().setQuery(sendReqVO.getContent())
                         .setSummary(true).setCount(WEB_SEARCH_COUNT)) : null;
 
-        // 3. 预算预扣费（必须在落库之前，避免超限时留下脏数据）
-        int estimatedPromptTokens = estimatePromptTokens(conversation, historyMessages, knowledgeSegments, webSearchResponse, sendReqVO);
+        // 3. 构建 Prompt（用于模型调用 + 预算估算）
+        Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
+        // 4. 预算预扣费（必须在落库之前，避免超限时留下脏数据）
+        int estimatedPromptTokens = estimatePromptTokens(prompt);
         AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
                 TenantContextHolder.getTenantId(), userId, estimateCost(model, estimatedPromptTokens));
         boolean budgetFinalized = false;
         try {
-            // 4.1 插入 user 发送消息
+            // 5.1 插入 user 发送消息
             AiChatMessageDO userMessage = createChatMessage(conversation.getId(), null, model,
                     userId, conversation.getRoleId(), MessageType.USER, sendReqVO.getContent(), sendReqVO.getUseContext(),
                     null, sendReqVO.getAttachmentUrls(), null);
 
-            // 4.2 插入 assistant 接收消息
+            // 5.2 插入 assistant 接收消息
             AiChatMessageDO assistantMessage = createChatMessage(conversation.getId(), userMessage.getId(), model,
                     userId, conversation.getRoleId(), MessageType.ASSISTANT, "", sendReqVO.getUseContext(),
                     knowledgeSegments, null, webSearchResponse);
 
-            // 4.3 创建 chat 需要的 Prompt
-            Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
-            // 4.4 调用模型，记录调用日志
+            // 5.3 调用模型，记录调用日志
             LocalDateTime requestTime = LocalDateTime.now();
             ChatResponse chatResponse;
             try {
@@ -221,12 +216,12 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                     null, null, null, null, null, null, preDeductResult, false);
             budgetFinalized = true;
 
-            // 4.4 更新响应内容
+            // 5.4 更新响应内容
             String newContent = AiUtils.getChatResponseContent(chatResponse);
             String newReasoningContent = AiUtils.getChatResponseReasoningContent(chatResponse);
             chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
                     .setContent(newContent).setReasoningContent(newReasoningContent));
-            // 4.5 响应结果
+            // 5.5 响应结果
             Map<Long, AiKnowledgeDocumentDO> documentMap = knowledgeDocumentService.getKnowledgeDocumentMap(
                     convertSet(knowledgeSegments, AiKnowledgeSegmentSearchRespBO::getDocumentId));
             List<AiChatMessageRespVO.KnowledgeSegment> segments = BeanUtils.toBean(knowledgeSegments,
@@ -270,28 +265,29 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 webSearchClient.search(new AiWebSearchRequest().setQuery(sendReqVO.getContent())
                         .setSummary(true).setCount(WEB_SEARCH_COUNT)) : null;
 
-        // 3. 预算预扣费（必须在落库之前，避免超限时留下脏数据）
+        // 3. 构建 Prompt（用于模型调用 + 预算估算）
+        Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
+        // 4. 预算预扣费（必须在落库之前，避免超限时留下脏数据）
         Long tenantId = TenantContextHolder.getTenantId();
-        int estimatedPromptTokens = estimatePromptTokens(conversation, historyMessages, knowledgeSegments, webSearchResponse, sendReqVO);
+        int estimatedPromptTokens = estimatePromptTokens(prompt);
         AiBudgetChecker.PreDeductResult preDeductResult = budgetChecker.preDeduct(
                 tenantId, userId, estimateCost(model, estimatedPromptTokens));
         try {
-            // 4.1 插入 user 发送消息
+            // 5.1 插入 user 发送消息
             AiChatMessageDO userMessage = createChatMessage(conversation.getId(), null, model,
                     userId, conversation.getRoleId(), MessageType.USER, sendReqVO.getContent(), sendReqVO.getUseContext(),
                     null, sendReqVO.getAttachmentUrls(), null);
 
-            // 4.2 插入 assistant 接收消息
+            // 5.2 插入 assistant 接收消息
             AiChatMessageDO assistantMessage = createChatMessage(conversation.getId(), userMessage.getId(), model,
                     userId, conversation.getRoleId(), MessageType.ASSISTANT, "", sendReqVO.getUseContext(),
                     knowledgeSegments, null, webSearchResponse);
 
-            // 4.3 构建 Prompt，并进行调用
-            Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
+            // 5.3 调用模型
             LocalDateTime requestTime = LocalDateTime.now();
             Flux<ChatResponse> streamResponse = chatModel.stream(prompt);
 
-            // 4.3 流式返回
+            // 5.4 流式返回
             StringBuffer contentBuffer = new StringBuffer();
             StringBuffer reasoningContentBuffer = new StringBuffer();
             AtomicReference<ChatResponse> lastChunkRef = new AtomicReference<>();
@@ -526,37 +522,15 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
         }
     }
 
-    private int estimatePromptTokens(AiChatConversationDO conversation,
-                                     List<AiChatMessageDO> historyMessages,
-                                     List<AiKnowledgeSegmentSearchRespBO> knowledgeSegments,
-                                     AiWebSearchResponse webSearchResponse,
-                                     AiChatMessageSendReqVO sendReqVO) {
+    private int estimatePromptTokens(Prompt prompt) {
+        if (prompt == null || CollUtil.isEmpty(prompt.getInstructions())) {
+            return 0;
+        }
         int tokens = 0;
-        tokens += StrUtil.length(StrUtil.nullToEmpty(conversation.getSystemMessage()));
-        List<AiChatMessageDO> contextMessages = filterContextMessages(historyMessages, conversation, sendReqVO);
-        for (AiChatMessageDO contextMessage : contextMessages) {
-            tokens += StrUtil.length(StrUtil.nullToEmpty(contextMessage.getContent()));
-            tokens += estimateAttachmentTokens(contextMessage.getAttachmentUrls());
+        for (Message message : prompt.getInstructions()) {
+            tokens += StrUtil.length(StrUtil.nullToEmpty(message.getText()));
         }
-        tokens += StrUtil.length(StrUtil.nullToEmpty(sendReqVO.getContent()));
-        if (CollUtil.isNotEmpty(knowledgeSegments)) {
-            for (AiKnowledgeSegmentSearchRespBO segment : knowledgeSegments) {
-                tokens += StrUtil.length(StrUtil.nullToEmpty(segment.getContent()));
-            }
-        }
-        if (webSearchResponse != null && CollUtil.isNotEmpty(webSearchResponse.getLists())) {
-            for (AiWebSearchResponse.WebPage page : webSearchResponse.getLists()) {
-                tokens += StrUtil.length(StrUtil.nullToEmpty(page.getTitle()));
-                tokens += StrUtil.length(StrUtil.nullToEmpty(page.getSummary()));
-                tokens += StrUtil.length(StrUtil.nullToEmpty(page.getSnippet()));
-            }
-        }
-        tokens += estimateAttachmentTokens(sendReqVO.getAttachmentUrls());
         return tokens;
-    }
-
-    private int estimateAttachmentTokens(List<String> attachmentUrls) {
-        return CollUtil.isEmpty(attachmentUrls) ? 0 : attachmentUrls.size() * ATTACHMENT_TOKEN_ALLOWANCE;
     }
 
     /**
