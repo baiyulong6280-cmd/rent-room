@@ -1,10 +1,12 @@
 package cn.iocoder.yudao.module.ai.controller.admin.model;
 
+import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.budget.AiBudgetUsageRespVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiBudgetConfigDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiBudgetUsageDO;
 import cn.iocoder.yudao.module.ai.enums.billing.AiBudgetPeriodTypeEnum;
+import cn.iocoder.yudao.module.ai.service.billing.AiBudgetPeriodHelper;
 import cn.iocoder.yudao.module.ai.service.billing.AiBudgetConfigService;
 import cn.iocoder.yudao.module.ai.service.billing.AiBudgetUsageService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,7 +18,6 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.time.temporal.TemporalAdjusters;
 
 import static cn.iocoder.yudao.framework.common.pojo.CommonResult.success;
 
@@ -37,24 +38,8 @@ public class AiBudgetUsageController {
     @Parameter(name = "userId", description = "用户编号，0 表示租户级", required = true, example = "0")
     @PreAuthorize("@ss.hasPermission('ai:budget-usage:query')")
     public CommonResult<AiBudgetUsageRespVO> getBudgetUsage(@RequestParam("userId") Long userId) {
-        // 查询预算配置：优先 MONTHLY，没有则查 DAILY
-        AiBudgetConfigDO config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.MONTHLY.getType());
-        if (config == null) {
-            config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.DAILY.getType());
-        }
-
-        // 根据配置的周期类型计算周期开始时间
-        LocalDateTime periodStart;
-        if (config != null && AiBudgetPeriodTypeEnum.DAILY.getType().equals(config.getPeriodType())) {
-            // 日度：当天 00:00
-            periodStart = LocalDateTime.now()
-                    .withHour(0).withMinute(0).withSecond(0).withNano(0);
-        } else {
-            // 月度（默认）：当月 1 号 00:00
-            periodStart = LocalDateTime.now()
-                    .with(TemporalAdjusters.firstDayOfMonth())
-                    .withHour(0).withMinute(0).withSecond(0).withNano(0);
-        }
+        AiBudgetConfigDO config = getEnabledBudgetConfig(userId);
+        LocalDateTime periodStart = AiBudgetPeriodHelper.getCurrentPeriodStart(config);
 
         // 查询用量
         AiBudgetUsageDO usage = budgetUsageService.getUsage(userId, periodStart);
@@ -78,6 +63,18 @@ public class AiBudgetUsageController {
             respVO.setUsagePercent(budgetAmount > 0 ? Math.round(usedAmount * 10000.0 / budgetAmount) / 100.0 : 0.0);
         }
         return success(respVO);
+    }
+
+    private AiBudgetConfigDO getEnabledBudgetConfig(Long userId) {
+        AiBudgetConfigDO config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.MONTHLY.getType());
+        if (config != null && CommonStatusEnum.ENABLE.getStatus().equals(config.getStatus())) {
+            return config;
+        }
+        config = budgetConfigService.getBudgetConfig(userId, AiBudgetPeriodTypeEnum.DAILY.getType());
+        if (config != null && CommonStatusEnum.ENABLE.getStatus().equals(config.getStatus())) {
+            return config;
+        }
+        return null;
     }
 
 }

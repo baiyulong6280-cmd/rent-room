@@ -16,6 +16,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.script.RedisScript;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -284,9 +285,11 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
     @Test
     public void testPreDeduct_dailyBudgetConfig() {
         // 用户配置 DAILY 预算
+        LocalDateTime dailyAnchor = LocalDateTime.now().minusHours(30).withNano(0);
         AiBudgetConfigDO dailyConfig = AiBudgetConfigDO.builder()
                 .userId(100L).periodType("DAILY").budgetAmount(5_000_000L)
                 .status(CommonStatusEnum.ENABLE.getStatus()).build();
+        dailyConfig.setCreateTime(dailyAnchor);
         lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
         when(budgetConfigService.getBudgetConfig(eq(100L), eq("DAILY"))).thenReturn(dailyConfig);
         lenient().when(stringRedisTemplate.hasKey(anyString())).thenReturn(true);
@@ -297,16 +300,17 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
 
         assertEquals(3000L, result.amount());
         assertEquals(100L, result.userId());
-        // periodStart 应该是今天零点（不是月初）
-        LocalDateTime today = LocalDateTime.now().withHour(0).withMinute(0).withSecond(0).withNano(0);
-        assertEquals(today, result.periodStart());
+        // DAILY 应按配置创建时间做滚动 24h 周期锚点（30h 前 -> 当前周期起点为 6h 前）
+        assertEquals(dailyAnchor.plusDays(1), result.periodStart());
     }
 
     @Test
     public void testPreDeduct_dailyBudgetExceeded() {
+        LocalDateTime dailyAnchor = LocalDateTime.now().minusHours(3).withNano(0);
         AiBudgetConfigDO dailyConfig = AiBudgetConfigDO.builder()
                 .userId(100L).periodType("DAILY").budgetAmount(1_000_000L)
                 .status(CommonStatusEnum.ENABLE.getStatus()).build();
+        dailyConfig.setCreateTime(dailyAnchor);
         lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
         when(budgetConfigService.getBudgetConfig(eq(100L), eq("DAILY"))).thenReturn(dailyConfig);
         lenient().when(stringRedisTemplate.hasKey(anyString())).thenReturn(true);
@@ -346,8 +350,8 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
 
         budgetChecker.settle(preDeduct, 7000L);
 
-        // delta = 7000 - 5000 = 2000，应修正到预扣时的租户周期 key（20260201），不能重算当前周期
-        verify(valueOperations).increment(eq("ai:budget:1:0:20260201"), eq(2000L));
+        // delta = 7000 - 5000 = 2000，应修正到预扣时的租户周期 key（20260201000000），不能重算当前周期
+        verify(valueOperations).increment(eq("ai:budget:1:0:20260201000000"), eq(2000L));
     }
 
     @Test
@@ -359,8 +363,8 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
 
         budgetChecker.release(preDeduct);
 
-        // 释放应回写预扣时的租户周期 key（20260201），不能重算当前周期
-        verify(valueOperations).increment(eq("ai:budget:1:0:20260201"), eq(-8000L));
+        // 释放应回写预扣时的租户周期 key（20260201000000），不能重算当前周期
+        verify(valueOperations).increment(eq("ai:budget:1:0:20260201000000"), eq(-8000L));
     }
 
     @Test
@@ -393,6 +397,44 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
         verify(budgetLogService).createBudgetLog(argThat(log ->
                 log.getUserId().equals(0L)
                         && log.getPeriodStartTime().equals(expectedTenantPeriodStart)));
+    }
+
+    @Test
+    public void testPreDeduct_monthlyBudgetConfig_shouldUseCreateDayAsAnchor() {
+        int anchorDay = 20;
+        LocalDateTime anchorTime = LocalDateTime.of(2025, 1, anchorDay, 10, 11, 12);
+        AiBudgetConfigDO monthlyConfig = AiBudgetConfigDO.builder()
+                .userId(100L).periodType("MONTHLY").budgetAmount(10_000_000L)
+                .status(CommonStatusEnum.ENABLE.getStatus()).build();
+        monthlyConfig.setCreateTime(anchorTime);
+        lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
+        when(budgetConfigService.getBudgetConfig(eq(100L), eq("MONTHLY"))).thenReturn(monthlyConfig);
+        lenient().when(stringRedisTemplate.hasKey(anyString())).thenReturn(true);
+        lenient().when(stringRedisTemplate.execute(Mockito.<RedisScript<Long>>any(), anyList(),
+                any(String.class), any(String.class), any(String.class))).thenReturn(0L);
+
+        LocalDateTime before = LocalDateTime.now();
+        AiBudgetChecker.PreDeductResult result = budgetChecker.preDeduct(1L, 100L, 3000L);
+        LocalDateTime after = LocalDateTime.now();
+
+        LocalDateTime expectedBefore = calcMonthlyAnchorStart(anchorTime, before);
+        LocalDateTime expectedAfter = calcMonthlyAnchorStart(anchorTime, after);
+        assertTrue(result.periodStart().equals(expectedBefore) || result.periodStart().equals(expectedAfter));
+    }
+
+    private static LocalDateTime calcMonthlyAnchorStart(LocalDateTime anchor, LocalDateTime now) {
+        int anchorDay = anchor.getDayOfMonth();
+        LocalDate currentDate = now.toLocalDate();
+        LocalDate currentMonthAnchorDate = currentDate.withDayOfMonth(Math.min(anchorDay, currentDate.lengthOfMonth()));
+        LocalDateTime currentMonthAnchorStart = currentMonthAnchorDate.atTime(
+                anchor.getHour(), anchor.getMinute(), anchor.getSecond(), anchor.getNano());
+        if (!now.isBefore(currentMonthAnchorStart)) {
+            return currentMonthAnchorStart;
+        }
+        LocalDate previousMonthDate = currentDate.minusMonths(1);
+        LocalDate previousMonthAnchorDate = previousMonthDate.withDayOfMonth(
+                Math.min(anchorDay, previousMonthDate.lengthOfMonth()));
+        return previousMonthAnchorDate.atTime(anchor.getHour(), anchor.getMinute(), anchor.getSecond(), anchor.getNano());
     }
 
 }

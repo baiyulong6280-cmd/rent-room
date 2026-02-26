@@ -6,11 +6,13 @@ import cn.iocoder.yudao.framework.dict.core.DictFrameworkUtils;
 import cn.iocoder.yudao.framework.tenant.core.context.TenantContextHolder;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.ai.controller.admin.write.vo.AiWriteGenerateReqVO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.billing.AiModelCallLogDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.write.AiWriteDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.write.AiWriteMapper;
 import cn.iocoder.yudao.module.ai.enums.model.AiModelTypeEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
+import cn.iocoder.yudao.module.ai.enums.billing.AiTokenSourceEnum;
 import cn.iocoder.yudao.module.ai.enums.write.AiWriteTypeEnum;
 import cn.iocoder.yudao.module.ai.service.billing.AiBudgetChecker;
 import cn.iocoder.yudao.module.ai.service.billing.AiModelCallLogService;
@@ -21,6 +23,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.springframework.ai.chat.prompt.Prompt;
@@ -30,6 +33,7 @@ import reactor.core.publisher.Flux;
 import java.time.LocalDateTime;
 import java.util.Collections;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -131,5 +135,31 @@ public class AiWriteServiceImplTest extends BaseMockitoUnitTest {
         writeService.generateWriteContent(reqVO, 2L).subscribe();
 
         verify(budgetChecker, timeout(1000).times(1)).release(eq(preDeductResult));
+    }
+
+    @Test
+    public void testGenerateWriteContent_successWithoutUsageShouldUseEstimatedCost() {
+        AiWriteGenerateReqVO reqVO = new AiWriteGenerateReqVO();
+        reqVO.setType(AiWriteTypeEnum.WRITING.getType());
+        reqVO.setPrompt("测试成功");
+        reqVO.setLength(1);
+        reqVO.setFormat(1);
+        reqVO.setTone(1);
+        reqVO.setLanguage(1);
+
+        ChatResponse chunk = mock(ChatResponse.class, RETURNS_DEEP_STUBS);
+        when(chunk.getResult().getOutput().getText()).thenReturn("ok");
+        when(chunk.getMetadata()).thenReturn(null);
+        when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(chunk));
+
+        writeService.generateWriteContent(reqVO, 2L).collectList().block();
+
+        org.mockito.ArgumentCaptor<AiModelCallLogDO> captor =
+                org.mockito.ArgumentCaptor.forClass(AiModelCallLogDO.class);
+        verify(callLogService, times(1)).createCallLog(captor.capture());
+        AiModelCallLogDO callLog = captor.getValue();
+        assertEquals(AiTokenSourceEnum.ESTIMATED.getSource(), callLog.getTokenSource());
+        assertEquals(preDeductResult.amount(), callLog.getCostAmount());
+        verify(budgetChecker, times(1)).settle(eq(preDeductResult), eq(preDeductResult.amount()));
     }
 }

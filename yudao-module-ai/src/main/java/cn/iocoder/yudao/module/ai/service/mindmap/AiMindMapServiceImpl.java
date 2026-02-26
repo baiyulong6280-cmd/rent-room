@@ -162,6 +162,7 @@ public class AiMindMapServiceImpl implements AiMindMapService {
             Integer promptTokens = null;
             Integer completionTokens = null;
             Integer totalTokens = null;
+            Long costAmount = null;
             String tokenSource = AiTokenSourceEnum.NONE.getSource();
             if (chatResponse != null && chatResponse.getMetadata() != null
                     && chatResponse.getMetadata().getUsage() != null) {
@@ -170,6 +171,12 @@ public class AiMindMapServiceImpl implements AiMindMapService {
                 completionTokens = usage.getCompletionTokens();
                 totalTokens = usage.getTotalTokens();
                 tokenSource = AiTokenSourceEnum.PROVIDER.getSource();
+            }
+            if (AiCallStatusEnum.SUCCESS.getStatus().equals(status)
+                    && preDeductResult != null
+                    && !AiTokenSourceEnum.PROVIDER.getSource().equals(tokenSource)) {
+                tokenSource = AiTokenSourceEnum.ESTIMATED.getSource();
+                costAmount = preDeductResult.amount();
             }
             if (errorMessage != null && errorMessage.length() > 1024) {
                 errorMessage = errorMessage.substring(0, 1024);
@@ -191,6 +198,7 @@ public class AiMindMapServiceImpl implements AiMindMapService {
                     .completionTokens(completionTokens)
                     .totalTokens(totalTokens)
                     .tokenSource(tokenSource)
+                    .costAmount(costAmount)
                     .build();
             callLogService.createCallLog(callLog);
         } catch (Exception e) {
