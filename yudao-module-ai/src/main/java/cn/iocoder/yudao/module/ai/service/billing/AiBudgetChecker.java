@@ -185,38 +185,56 @@ public class AiBudgetChecker {
      * 或租户级用量仅依赖 Redis，定期批量同步到 DB。
      */
     public void settle(PreDeductResult preDeductResult, long actualCost) {
-        long delta = actualCost - preDeductResult.amount();
-        List<BudgetScope> scopes = resolveScopes(preDeductResult);
-        List<BudgetKeyAggregate> aggregates = aggregateBudgetKeys(scopes);
-        long settledCost = actualCost;
+        try {
+            long delta = actualCost - preDeductResult.amount();
+            List<BudgetScope> scopes = resolveScopes(preDeductResult);
+            List<BudgetKeyAggregate> aggregates = aggregateBudgetKeys(scopes);
+            long settledCost = actualCost;
 
-        if (delta > 0) {
-            long appliedDelta = applyPositiveDelta(aggregates, delta);
-            settledCost = preDeductResult.amount() + appliedDelta;
-        } else if (delta < 0) {
-            // Redis 退回差额
-            for (BudgetKeyAggregate aggregate : aggregates) {
-                stringRedisTemplate.opsForValue().increment(aggregate.key(), delta);
+            if (delta > 0) {
+                long appliedDelta = applyPositiveDelta(aggregates, delta);
+                settledCost = preDeductResult.amount() + appliedDelta;
+            } else if (delta < 0) {
+                // Redis 退回差额
+                for (BudgetKeyAggregate aggregate : aggregates) {
+                    stringRedisTemplate.opsForValue().increment(aggregate.key(), delta);
+                }
             }
-        }
 
-        // DB 落库（最终准绳）
-        if (settledCost > 0) {
-            Map<String, BudgetScope> usageScopes = new LinkedHashMap<>();
-            for (BudgetScope scope : scopes) {
-                String usageKey = scope.ownerId() + ":" + scope.periodStart();
-                usageScopes.putIfAbsent(usageKey, scope);
+            // DB 落库（最终准绳）
+            boolean usagePersisted = true;
+            if (settledCost > 0) {
+                Map<String, BudgetScope> usageScopes = new LinkedHashMap<>();
+                for (BudgetScope scope : scopes) {
+                    String usageKey = scope.ownerId() + ":" + scope.periodStart();
+                    usageScopes.putIfAbsent(usageKey, scope);
+                }
+                for (BudgetScope scope : usageScopes.values()) {
+                    try {
+                        budgetUsageService.addUsage(scope.ownerId(), scope.periodStart(), settledCost);
+                    } catch (Exception e) {
+                        usagePersisted = false;
+                        log.error("[settle][ownerId({}) periodStart({}) settledCost({}) DB 落库失败]",
+                                scope.ownerId(), scope.periodStart(), settledCost, e);
+                    }
+                }
             }
-            for (BudgetScope scope : usageScopes.values()) {
-                budgetUsageService.addUsage(scope.ownerId(), scope.periodStart(), settledCost);
-            }
-        }
 
-        // 阈值告警检查
-        for (BudgetScope scope : scopes) {
-            if (scope.budgetAmount() > 0) {
-                checkThresholdAlerts(scope, settledCost);
+            // 阈值告警依赖 DB 最新值，若落库失败则跳过，避免产生错误告警
+            if (usagePersisted) {
+                for (BudgetScope scope : scopes) {
+                    if (scope.budgetAmount() > 0) {
+                        checkThresholdAlerts(scope, settledCost);
+                    }
+                }
+            } else {
+                log.warn("[settle][actualCost({}) preDeductAmount({}) DB 落库存在失败，已跳过阈值告警]",
+                        actualCost, preDeductResult.amount());
             }
+        } catch (Exception e) {
+            // settle 不向上抛出，避免调用方误触发 release 造成反向冲销
+            log.error("[settle][tenantId({}) userId({}) actualCost({}) 结算失败，已内部兜底不抛出]",
+                    preDeductResult.tenantId(), preDeductResult.userId(), actualCost, e);
         }
     }
 

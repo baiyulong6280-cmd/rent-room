@@ -409,6 +409,20 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testSettle_whenDbPersistFailed_shouldNotThrow() {
+        lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
+        doThrow(new RuntimeException("db error")).when(budgetUsageService)
+                .addUsage(anyLong(), any(LocalDateTime.class), anyLong());
+
+        LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
+        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 5000L, periodStart, periodStart);
+
+        // 结算阶段 DB 失败不应继续向上抛出，否则调用方可能触发错误 release
+        assertDoesNotThrow(() -> budgetChecker.settle(preDeduct, 8000L));
+        verify(valueOperations, atLeastOnce()).increment(contains(":100:"), eq(3000L));
+    }
+
+    @Test
     public void testSettle_shouldUseTenantPeriodStartFromPreDeductResult() {
         lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
 
