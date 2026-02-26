@@ -195,6 +195,8 @@ public class AiMindMapServiceImpl implements AiMindMapService {
                     || ((AiCallStatusEnum.FAIL.getStatus().equals(status)
                     || AiCallStatusEnum.CANCEL.getStatus().equals(status)) && hasOutputContent));
             if (shouldUseEstimated) {
+                // 说明：主流模型在流式最后一个 chunk 通常会返回 usage。
+                // 若极少数场景缺失 usage，这里会回落到预估费用，可能偏高。
                 tokenSource = AiTokenSourceEnum.ESTIMATED.getSource();
                 costAmount = preDeductResult.amount();
             }
@@ -231,8 +233,8 @@ public class AiMindMapServiceImpl implements AiMindMapService {
                     long actualCost = callLog != null && callLog.getCostAmount() != null ? callLog.getCostAmount() : 0L;
                     budgetChecker.settle(preDeductResult, actualCost);
                 } catch (Exception e) {
-                    log.error("[createCallLog][userId({}) bizId({}) 预算结算失败，释放预扣费]", userId, bizId, e);
-                    budgetChecker.release(preDeductResult);
+                    // settle 内部已兜底；此处不再 release，避免反向冲销导致预算负值
+                    log.error("[createCallLog][userId({}) bizId({}) 预算结算失败]", userId, bizId, e);
                 }
             }
         }
