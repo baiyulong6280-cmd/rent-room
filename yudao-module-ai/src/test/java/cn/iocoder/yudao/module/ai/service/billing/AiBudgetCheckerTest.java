@@ -69,7 +69,8 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
         lenient().when(stringRedisTemplate.hasKey(anyString())).thenReturn(false);
         lenient().when(valueOperations.setIfAbsent(anyString(), anyString(), any())).thenReturn(true);
         // Lua 脚本返回 0（成功）
-        lenient().when(stringRedisTemplate.execute(Mockito.<RedisScript<Long>>any(), anyList(), any(String.class), any(String.class), any(String.class)))
+        lenient().when(stringRedisTemplate.execute(Mockito.<RedisScript<Long>>any(), anyList(),
+                any(String.class), any(String.class), any(String.class)))
                 .thenReturn(0L);
 
         AiBudgetChecker.PreDeductResult result = budgetChecker.preDeduct(1L, 100L, 5000L);
@@ -87,7 +88,8 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
                 .thenReturn(userConfig);
         lenient().when(stringRedisTemplate.hasKey(anyString())).thenReturn(true);
         // Lua 脚本返回 1（用户预算不足）
-        lenient().when(stringRedisTemplate.execute(Mockito.<RedisScript<Long>>any(), anyList(), any(String.class), any(String.class), any(String.class)))
+        lenient().when(stringRedisTemplate.execute(Mockito.<RedisScript<Long>>any(), anyList(),
+                any(String.class), any(String.class), any(String.class)))
                 .thenReturn(1L);
 
         assertThrows(ServiceException.class, () -> budgetChecker.preDeduct(1L, 100L, 5000L));
@@ -105,7 +107,8 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
                 .thenReturn(tenantConfig);
         lenient().when(stringRedisTemplate.hasKey(anyString())).thenReturn(true);
         // Lua 脚本返回 2（租户预算不足）
-        lenient().when(stringRedisTemplate.execute(Mockito.<RedisScript<Long>>any(), anyList(), any(String.class), any(String.class), any(String.class)))
+        lenient().when(stringRedisTemplate.execute(Mockito.<RedisScript<Long>>any(), anyList(),
+                any(String.class), any(String.class), any(String.class)))
                 .thenReturn(2L);
 
         assertThrows(ServiceException.class, () -> budgetChecker.preDeduct(1L, 100L, 5000L));
@@ -179,15 +182,17 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
                 .userId(100L).periodType("MONTHLY").budgetAmount(100_000L)
                 .alertThresholds("[80,90,100]")
                 .status(CommonStatusEnum.ENABLE.getStatus()).build();
+        lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
         when(budgetConfigService.getBudgetConfig(eq(100L), eq("MONTHLY"))).thenReturn(config);
-        lenient().when(budgetConfigService.getBudgetConfig(eq(0L), anyString())).thenReturn(null);
+        lenient().when(stringRedisTemplate.hasKey(anyString())).thenReturn(true);
+        lenient().when(stringRedisTemplate.execute(Mockito.<RedisScript<Long>>any(), anyList(),
+                any(String.class), any(String.class), any(String.class))).thenReturn(0L);
 
         // 已用 75,000，本次扣 10,000 → 85,000（跨越 80% 阈值）
         AiBudgetUsageDO usage = AiBudgetUsageDO.builder().usedAmount(85_000L).build();
         when(budgetUsageService.getUsage(eq(100L), any())).thenReturn(usage);
 
-        LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
-        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 10000L, periodStart, periodStart);
+        AiBudgetChecker.PreDeductResult preDeduct = budgetChecker.preDeduct(1L, 100L, 10_000L);
 
         budgetChecker.settle(preDeduct, 10000L);
 
@@ -205,15 +210,17 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
                 .userId(100L).periodType("MONTHLY").budgetAmount(100_000L)
                 .alertThresholds("[80]")
                 .status(CommonStatusEnum.ENABLE.getStatus()).build();
+        lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
         when(budgetConfigService.getBudgetConfig(eq(100L), eq("MONTHLY"))).thenReturn(config);
-        lenient().when(budgetConfigService.getBudgetConfig(eq(0L), anyString())).thenReturn(null);
+        lenient().when(stringRedisTemplate.hasKey(anyString())).thenReturn(true);
+        lenient().when(stringRedisTemplate.execute(Mockito.<RedisScript<Long>>any(), anyList(),
+                any(String.class), any(String.class), any(String.class))).thenReturn(0L);
 
         // 已用 50,000，本次扣 10,000 → 60,000（未跨越 80%）
         AiBudgetUsageDO usage = AiBudgetUsageDO.builder().usedAmount(60_000L).build();
         when(budgetUsageService.getUsage(eq(100L), any())).thenReturn(usage);
 
-        LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
-        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 10000L, periodStart, periodStart);
+        AiBudgetChecker.PreDeductResult preDeduct = budgetChecker.preDeduct(1L, 100L, 10_000L);
 
         budgetChecker.settle(preDeduct, 10000L);
 
@@ -229,15 +236,17 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
                 .userId(100L).periodType("MONTHLY").budgetAmount(100_000L)
                 .alertThresholds("[80,90,100]")
                 .status(CommonStatusEnum.ENABLE.getStatus()).build();
+        lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
         when(budgetConfigService.getBudgetConfig(eq(100L), eq("MONTHLY"))).thenReturn(config);
-        lenient().when(budgetConfigService.getBudgetConfig(eq(0L), anyString())).thenReturn(null);
+        lenient().when(stringRedisTemplate.hasKey(anyString())).thenReturn(true);
+        lenient().when(stringRedisTemplate.execute(Mockito.<RedisScript<Long>>any(), anyList(),
+                any(String.class), any(String.class), any(String.class))).thenReturn(0L);
 
         // 已用 70,000，本次扣 25,000 → 95,000（跨越 80% 和 90% 两个阈值）
         AiBudgetUsageDO usage = AiBudgetUsageDO.builder().usedAmount(95_000L).build();
         when(budgetUsageService.getUsage(eq(100L), any())).thenReturn(usage);
 
-        LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
-        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 25000L, periodStart, periodStart);
+        AiBudgetChecker.PreDeductResult preDeduct = budgetChecker.preDeduct(1L, 100L, 25_000L);
 
         budgetChecker.settle(preDeduct, 25000L);
 
@@ -268,11 +277,13 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
                 .userId(100L).periodType("MONTHLY").budgetAmount(100_000L)
                 .alertThresholds("[80]")
                 .status(CommonStatusEnum.DISABLE.getStatus()).build();
+        lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
         when(budgetConfigService.getBudgetConfig(eq(100L), eq("MONTHLY"))).thenReturn(config);
-        lenient().when(budgetConfigService.getBudgetConfig(eq(0L), anyString())).thenReturn(null);
+        lenient().when(stringRedisTemplate.hasKey(anyString())).thenReturn(true);
+        lenient().when(stringRedisTemplate.execute(Mockito.<RedisScript<Long>>any(), anyList(),
+                any(String.class), any(String.class), any(String.class))).thenReturn(0L);
 
-        LocalDateTime periodStart = LocalDateTime.of(2026, 2, 1, 0, 0, 0);
-        AiBudgetChecker.PreDeductResult preDeduct = new AiBudgetChecker.PreDeductResult(1L, 100L, 5000L, periodStart, periodStart);
+        AiBudgetChecker.PreDeductResult preDeduct = budgetChecker.preDeduct(1L, 100L, 5_000L);
 
         budgetChecker.settle(preDeduct, 5000L);
 
@@ -320,6 +331,34 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
 
         assertThrows(ServiceException.class, () -> budgetChecker.preDeduct(1L, 100L, 5000L));
         verify(budgetLogService).createBudgetLog(any(AiBudgetLogDO.class));
+    }
+
+    @Test
+    public void testPreDeduct_userDailyAndMonthlyEnabled_dailyExceededShouldBlock() {
+        LocalDateTime anchorTime = LocalDateTime.of(2025, 1, 20, 10, 11, 12);
+        AiBudgetConfigDO monthlyConfig = AiBudgetConfigDO.builder()
+                .userId(100L).periodType("MONTHLY").budgetAmount(10_000_000L)
+                .status(CommonStatusEnum.ENABLE.getStatus()).build();
+        monthlyConfig.setCreateTime(anchorTime);
+        AiBudgetConfigDO dailyConfig = AiBudgetConfigDO.builder()
+                .userId(100L).periodType("DAILY").budgetAmount(1_000_000L)
+                .status(CommonStatusEnum.ENABLE.getStatus()).build();
+        dailyConfig.setCreateTime(LocalDateTime.now().minusHours(4).withNano(0));
+
+        lenient().when(budgetConfigService.getBudgetConfig(anyLong(), anyString())).thenReturn(null);
+        when(budgetConfigService.getBudgetConfig(eq(100L), eq("MONTHLY"))).thenReturn(monthlyConfig);
+        when(budgetConfigService.getBudgetConfig(eq(100L), eq("DAILY"))).thenReturn(dailyConfig);
+        when(budgetConfigService.getBudgetConfig(eq(0L), eq("MONTHLY"))).thenReturn(null);
+        when(budgetConfigService.getBudgetConfig(eq(0L), eq("DAILY"))).thenReturn(null);
+        lenient().when(stringRedisTemplate.hasKey(anyString())).thenReturn(true);
+        // key 顺序是用户 MONTHLY、用户 DAILY、租户默认 MONTHLY；返回 2 表示用户 DAILY 超限
+        lenient().when(stringRedisTemplate.execute(Mockito.<RedisScript<Long>>any(), anyList(),
+                any(String.class), any(String.class), any(String.class), any(String.class))).thenReturn(2L);
+
+        assertThrows(ServiceException.class, () -> budgetChecker.preDeduct(1L, 100L, 5000L));
+        verify(budgetLogService).createBudgetLog(argThat(log ->
+                log.getUserId().equals(100L)
+                        && log.getPeriodStartTime().equals(AiBudgetPeriodHelper.getCurrentPeriodStart(dailyConfig))));
     }
 
     // ========== settle 实际费用大于预扣 ==========
@@ -438,3 +477,4 @@ public class AiBudgetCheckerTest extends BaseMockitoUnitTest {
     }
 
 }
+
