@@ -196,14 +196,22 @@ class Convertor(ABC):
         """
 
         def generate_columns(columns):
+            # simple-ddl-parser 新版本返回 detailed_columns，旧版本返回嵌套结构
+            if columns and isinstance(columns[0], dict):
+                raw_columns = columns
+            elif columns and isinstance(columns[0], list):
+                raw_columns = columns[0]
+            else:
+                raw_columns = []
             keys = [
                 f"{col['name'].lower()}{' ' + col['order'].lower() if col['order'] != 'ASC' else ''}"
-                for col in columns[0]
+                for col in raw_columns
             ]
             return ", ".join(keys)
 
         for no, index in enumerate(ddl["index"], 1):
-            columns = generate_columns(index["columns"])
+            detailed_columns = index.get("detailed_columns") or index.get("columns") or []
+            columns = generate_columns(detailed_columns)
             table_name = ddl["table_name"].lower()
             yield f"CREATE INDEX idx_{table_name}_{no:02d} ON {table_name} ({columns})"
 
@@ -425,11 +433,20 @@ COMMIT;
                 last_id = int(match.group(1))
 
         # 生成 Sequence
+        sequence_name = f"{table_name}_seq"
         script += (
             "\n\n"
-            + f"""DROP SEQUENCE IF EXISTS {table_name}_seq;
-CREATE SEQUENCE {table_name}_seq
+            + f"""DROP SEQUENCE IF EXISTS {sequence_name};
+CREATE SEQUENCE {sequence_name}
     START {last_id + 1};"""
+        )
+        script += (
+            "\n"
+            + f"ALTER TABLE {table_name} ALTER COLUMN id SET DEFAULT nextval('{sequence_name}'::regclass);"
+        )
+        script += (
+            "\n"
+            + f"ALTER SEQUENCE {sequence_name} OWNED BY {table_name}.id;"
         )
 
         return script
