@@ -1,0 +1,46 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  autoconfigure:
+    # noinspection SpringBootApplicationYaml
+    exclude:
+      - com.alibaba.druid.spring.boot.autoconfigure.DruidDataSourceAutoConfigure
+      - org.springframework.boot.autoconfigure.quartz.QuartzAutoConfiguration
+      - org.springframework.ai.vectorstore.qdrant.autoconfigure.QdrantVectorStoreAutoConfiguration
+      - org.springframework.ai.vectorstore.milvus.autoconfigure.MilvusVectorStoreAutoConfiguration
+  datasource:
+    dynamic:
+      primary: master
+      datasource:
+        master:
+          url: jdbc:mysql://${MYSQLHOST}:${MYSQLPORT}/${MYSQLDATABASE}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true
+          username: ${MYSQLUSER}
+          password: ${MYSQLPASSWORD}
+        slave:
+          lazy: true
+          url: ${SLAVE_MYSQL_URL:jdbc:mysql://${MYSQLHOST}:${MYSQLPORT}/${MYSQLDATABASE}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true}
+          username: ${SLAVE_MYSQL_USER:${MYSQLUSER}}
+          password: ${SLAVE_MYSQL_PASSWORD:${MYSQLPASSWORD}}
+  redis:
+    host: ${REDISHOST}
+    port: ${REDISPORT:6379}
+    username: ${REDISUSER:}
+    password: ${REDISPASSWORD:}
+    database: ${REDISDATABASE:0}
+  boot:
+    admin:
+      client:
+        enabled: false
+      server:
+        enabled: false
+
+management:
+  endpoints:
+    web:
+      base-path: /actuator
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never

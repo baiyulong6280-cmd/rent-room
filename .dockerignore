@@ -1,0 +1,12 @@
+.git
+.github
+.gitee
+.idea
+.claude
+.image
+
+**/target
+**/node_modules
+
+yudao-ui
+sql/tools
