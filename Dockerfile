@@ -5,8 +5,7 @@ FROM maven:3.9.9-eclipse-temurin-8 AS builder
 WORKDIR /workspace
 COPY . .
 
-RUN --mount=type=cache,id=m2-cache,target=/root/.m2 \
-    mvn -T 1C -pl yudao-server -am package -DskipTests
+RUN mvn -T 1C -pl yudao-server -am package -DskipTests
 
 FROM eclipse-temurin:8-jre
 
