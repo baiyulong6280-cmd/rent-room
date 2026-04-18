@@ -181,6 +181,8 @@ class Convertor(ABC):
                 head, tail = line.replace(PREFIX, "").split(" VALUES ", maxsplit=1)
                 head = head.strip().replace("`", "").lower()
                 tail = tail.strip().replace(r"\"", '"')
+                # MySQL dump 会把单引号写成 \'，PostgreSQL 需要写成 ''
+                tail = tail.replace("\\'", "''")
                 # tail = tail.replace("b'0'", "'0'").replace("b'1'", "'1'")
                 yield f"INSERT INTO {table_name.lower()} {head} VALUES {tail}"
 
@@ -196,14 +198,22 @@ class Convertor(ABC):
         """
 
         def generate_columns(columns):
+            # simple-ddl-parser 新版本返回 detailed_columns，旧版本返回嵌套结构
+            if columns and isinstance(columns[0], dict):
+                raw_columns = columns
+            elif columns and isinstance(columns[0], list):
+                raw_columns = columns[0]
+            else:
+                raw_columns = []
             keys = [
                 f"{col['name'].lower()}{' ' + col['order'].lower() if col['order'] != 'ASC' else ''}"
-                for col in columns[0]
+                for col in raw_columns
             ]
             return ", ".join(keys)
 
         for no, index in enumerate(ddl["index"], 1):
-            columns = generate_columns(index["columns"])
+            detailed_columns = index.get("detailed_columns") or index.get("columns") or []
+            columns = generate_columns(detailed_columns)
             table_name = ddl["table_name"].lower()
             yield f"CREATE INDEX idx_{table_name}_{no:02d} ON {table_name} ({columns})"
 
@@ -267,10 +277,12 @@ class Convertor(ABC):
 
             # 解析注释
             for column in table_ddl["columns"]:
-                column["comment"] = bytes(column["comment"], "utf-8").decode(
+                raw_comment = column.get("comment") or "''"
+                column["comment"] = bytes(raw_comment, "utf-8").decode(
                     r"unicode_escape"
                 )[1:-1]
-            table_ddl["comment"] = bytes(table_ddl["comment"], "utf-8").decode(
+            raw_table_comment = table_ddl.get("comment") or "''"
+            table_ddl["comment"] = bytes(raw_table_comment, "utf-8").decode(
                 r"unicode_escape"
             )[1:-1]
 
@@ -313,6 +325,24 @@ class PostgreSQLConvertor(Convertor):
     def __init__(self, src):
         super().__init__(src, "PostgreSQL")
 
+    @staticmethod
+    def fallback_type(col: Dict) -> Optional[str]:
+        name = col["name"].lower()
+        if name in ("creator", "updater"):
+            return "varchar(64)"
+        if name in ("weight", "volume", "latitude", "longitude", "fee_rate", "channel_fee_rate",
+                    "start_count", "extra_count"):
+            return "double precision"
+        if name in ("time",):
+            return "date"
+        if name in ("opening_time", "closing_time"):
+            return "time"
+        if name in ("properties",):
+            return "text"
+        if name in ("status",):
+            return "int2"
+        return None
+
     def translate_type(self, type: str, size: Optional[Union[int, Tuple[int]]]):
         """类型转换"""
 
@@ -328,10 +358,18 @@ class PostgreSQLConvertor(Convertor):
             return "timestamp"
         if type == "timestamp":
             return f"timestamp({size})"
+        if type == "date":
+            return "date"
+        if type == "time":
+            return "time"
         if type == "bit":
             return "bool"
         if type in ("tinyint", "smallint"):
             return "int2"
+        if type in ("double", "float"):
+            return "double precision"
+        if type == "json":
+            return "text"
         if type in ("text", "longtext"):
             return "text"
         if type in ("blob", "mediumblob"):
@@ -349,8 +387,12 @@ class PostgreSQLConvertor(Convertor):
             if name == "deleted":
                 return "deleted int2 NOT NULL DEFAULT 0"
 
-            type = col["type"].lower()
-            full_type = self.translate_type(type, col["size"])
+            raw_type = col.get("type")
+            full_type = self.translate_type(raw_type, col["size"]) if raw_type else None
+            if full_type is None:
+                full_type = self.fallback_type(col)
+            if full_type is None:
+                raise ValueError(f"unsupported column type for PostgreSQL: table={ddl['table_name']}, column={name}, raw_type={raw_type}")
             nullable = "NULL" if col["nullable"] else "NOT NULL"
             default = f"DEFAULT {col['default']}" if col["default"] is not None else ""
             return f"{name} {full_type} {nullable} {default}"
@@ -425,11 +467,20 @@ COMMIT;
                 last_id = int(match.group(1))
 
         # 生成 Sequence
+        sequence_name = f"{table_name}_seq"
         script += (
             "\n\n"
-            + f"""DROP SEQUENCE IF EXISTS {table_name}_seq;
-CREATE SEQUENCE {table_name}_seq
+            + f"""DROP SEQUENCE IF EXISTS {sequence_name};
+CREATE SEQUENCE {sequence_name}
     START {last_id + 1};"""
+        )
+        script += (
+            "\n"
+            + f"ALTER TABLE {table_name} ALTER COLUMN id SET DEFAULT nextval('{sequence_name}'::regclass);"
+        )
+        script += (
+            "\n"
+            + f"ALTER SEQUENCE {sequence_name} OWNED BY {table_name}.id;"
         )
 
         return script
@@ -473,6 +524,8 @@ class OracleConvertor(Convertor):
             return "number(1,0)"
         if type in ("tinyint", "smallint"):
             return "smallint"
+        if type in ("double", "float"):
+            return "binary_double"
         if type in ("text", "longtext"):
             return "clob"
         if type in ("blob", "mediumblob"):
@@ -616,6 +669,8 @@ class SQLServerConvertor(Convertor):
             return "varchar(1)"
         if type in ("tinyint", "smallint"):
             return "tinyint"
+        if type in ("double", "float"):
+            return "float"
         if type in ("text", "longtext"):
             return "nvarchar(max)"
         if type in ("blob", "mediumblob"):
@@ -784,6 +839,8 @@ class DM8Convertor(Convertor):
             return "bit"
         if type in ("tinyint", "smallint"):
             return "smallint"
+        if type in ("double", "float"):
+            return "double"
         if type in ("text", "longtext"):
             return "text"
         if type in ("blob", "mediumblob"):
