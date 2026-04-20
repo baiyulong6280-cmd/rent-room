@@ -16,6 +16,8 @@ import {
   delete${simpleClassName},
   export${simpleClassName},
   get${simpleClassName}List,
+  import${simpleClassName},
+  import${simpleClassName}Template,
 } from '#/api/${table.moduleName}/${table.businessName}';
 #else## 标准表接口
 import {
@@ -24,6 +26,8 @@ import {
   delete${simpleClassName}List,#end
   export${simpleClassName},
   get${simpleClassName}Page,
+  import${simpleClassName},
+  import${simpleClassName}Template,
 } from '#/api/${table.moduleName}/${table.businessName}';
 #end
 import { $t } from '#/locales';
@@ -50,6 +54,8 @@ const [FormModal, formModalApi] = useVbenModal({
   connectedComponent: Form,
   destroyOnClose: true,
 });
+const importLoading = ref(false);
+const importFileRef = ref<HTMLInputElement>();
 #if (${table.templateType} == 2)## 树表特有：控制表格展开收缩
 
 /** 切换树形展开/收缩状态 */
@@ -133,6 +139,44 @@ async function handleExport() {
   downloadFileFromBlobPart({ fileName: '${table.classComment}.xls', source: data });
 }
 
+/** 导入模板下载 */
+async function handleImportTemplateDownload() {
+  const data = await import${simpleClassName}Template();
+  downloadFileFromBlobPart({ fileName: '${table.classComment}导入模板.xls', source: data });
+}
+
+/** 导入按钮操作 */
+function handleImport() {
+  importFileRef.value?.click();
+}
+
+/** 导入文件变更 */
+async function handleImportFileChange(event: Event) {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (!file) {
+    return;
+  }
+  importLoading.value = true;
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response: any = await import${simpleClassName}(formData);
+    const data = response?.data ?? response ?? {};
+    let text = '导入成功数量：' + (data.successCount || 0) + '；导入失败数量：' + (data.failureCount || 0) + '；';
+    if (data.failureRows) {
+      Object.keys(data.failureRows).forEach((rowNo) => {
+        text += '< 第' + rowNo + '行: ' + data.failureRows[rowNo] + ' >';
+      });
+    }
+    ElMessage.info(text);
+    handleRefresh();
+  } finally {
+    target.value = '';
+    importLoading.value = false;
+  }
+}
+
 const [Grid, gridApi] = useVbenVxeGrid({
   formOptions: {
     schema: useGridFormSchema(),
@@ -208,6 +252,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
 <template>
   <Page auto-content-height>
     <FormModal @success="handleRefresh" />
+    <input ref="importFileRef" type="file" accept=".xls,.xlsx" class="hidden" @change="handleImportFileChange" />
 #if ($table.templateType == 11) ## erp情况
   <div>
 #end
@@ -245,6 +290,19 @@ const [Grid, gridApi] = useVbenVxeGrid({
               onClick: handleExpand,
             },
             #end
+            {
+              label: '导入',
+              type: 'primary',
+              auth: ['${table.moduleName}:${simpleClassName_strikeCase}:import'],
+              disabled: importLoading.value,
+              onClick: handleImport,
+            },
+            {
+              label: '导入模板',
+              type: 'primary',
+              auth: ['${table.moduleName}:${simpleClassName_strikeCase}:import'],
+              onClick: handleImportTemplateDownload,
+            },
             {
               label: $t('ui.actionTitle.export'),
               type: 'primary',

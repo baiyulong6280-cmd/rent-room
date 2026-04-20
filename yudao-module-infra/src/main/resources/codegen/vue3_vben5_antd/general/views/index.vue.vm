@@ -27,9 +27,9 @@ import { getRangePickerDefaultProps } from '#/utils/rangePickerProps';
 import { $t } from '#/locales';
 #if (${table.templateType} == 2)## 树表接口
 import { handleTree } from '@vben/utils'
-import { get${simpleClassName}List, delete${simpleClassName}, export${simpleClassName} } from '#/api/${table.moduleName}/${table.businessName}';
+import { get${simpleClassName}List, delete${simpleClassName}, export${simpleClassName}, import${simpleClassName}, import${simpleClassName}Template } from '#/api/${table.moduleName}/${table.businessName}';
 #else## 标准表接口
-import { get${simpleClassName}Page, delete${simpleClassName},#if ($deleteBatchEnable) delete${simpleClassName}List,#end export${simpleClassName} } from '#/api/${table.moduleName}/${table.businessName}';
+import { get${simpleClassName}Page, delete${simpleClassName},#if ($deleteBatchEnable) delete${simpleClassName}List,#end export${simpleClassName}, import${simpleClassName}, import${simpleClassName}Template } from '#/api/${table.moduleName}/${table.businessName}';
 #end
 
 #if ($table.templateType == 12 || $table.templateType == 11) ## 内嵌和erp情况
@@ -73,6 +73,8 @@ const queryParams = reactive({
 })
 const queryFormRef = ref() // 搜索的表单
 const exportLoading = ref(false) // 导出的加载中
+const importLoading = ref(false) // 导入的加载中
+const importFileRef = ref<HTMLInputElement>()
 
 /** 查询列表 */
 async function getList() {
@@ -190,6 +192,44 @@ try {
 }
 }
 
+/** 导入模板下载 */
+async function handleImportTemplateDownload() {
+  const data = await import${simpleClassName}Template();
+  downloadFileFromBlobPart({ fileName: '${table.classComment}导入模板.xls', source: data });
+}
+
+/** 导入按钮操作 */
+function handleImport() {
+  importFileRef.value?.click();
+}
+
+/** 导入文件变更 */
+async function handleImportFileChange(event: Event) {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (!file) {
+    return;
+  }
+  importLoading.value = true;
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response: any = await import${simpleClassName}(formData);
+    const data = response?.data ?? response ?? {};
+    let text = '导入成功数量：' + (data.successCount || 0) + '；导入失败数量：' + (data.failureCount || 0) + '；';
+    if (data.failureRows) {
+      Object.keys(data.failureRows).forEach((rowNo) => {
+        text += '< 第' + rowNo + '行: ' + data.failureRows[rowNo] + ' >';
+      });
+    }
+    message.info(text);
+    await getList();
+  } finally {
+    target.value = '';
+    importLoading.value = false;
+  }
+}
+
 #if (${table.templateType} == 2)
 /** 切换树形展开/收缩状态 */
 const isExpanded = ref(true);
@@ -209,6 +249,7 @@ onMounted(() => {
 <template>
   <Page auto-content-height>
     <FormModal @success="getList" />
+    <input ref="importFileRef" type="file" accept=".xls,.xlsx" class="hidden" @change="handleImportFileChange" />
 
     <Card v-if="!hiddenSearchBar" class="mb-4">
       <!-- 搜索工作栏 -->
@@ -313,6 +354,23 @@ onMounted(() => {
               v-access:code="['${permissionPrefix}:create']"
           >
             {{ $t('ui.actionTitle.create', ['${table.classComment}']) }}
+          </Button>
+          <Button
+              class="ml-2"
+              type="primary"
+              :loading="importLoading"
+              @click="handleImport"
+              v-access:code="['${permissionPrefix}:import']"
+          >
+            导入
+          </Button>
+          <Button
+              class="ml-2"
+              type="primary"
+              @click="handleImportTemplateDownload"
+              v-access:code="['${permissionPrefix}:import']"
+          >
+            导入模板
           </Button>
           <Button
               :icon="h(Download)"
