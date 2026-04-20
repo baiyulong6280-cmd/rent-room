@@ -313,7 +313,11 @@ public class PermissionServiceImpl implements PermissionService {
             }
             // 情况四，DEPT_DEPT_AND_CHILD
             if (Objects.equals(role.getDataScope(), DataScopeEnum.DEPT_AND_CHILD.getScope())) {
-                CollUtil.addAll(result.getDeptIds(), deptService.getChildDeptIdListFromCache(userDeptId.get()));
+                // 如果用户部门编号为空，则跳过，否则续缓存注解会导致报错
+                if (userDeptId.get() != null) {
+                    // 添加子部门编号
+                    CollUtil.addAll(result.getDeptIds(), deptService.getChildDeptIdListFromCache(userDeptId.get()));
+                }
                 // 添加本身部门编号
                 CollUtil.addAll(result.getDeptIds(), userDeptId.get());
                 continue;
