@@ -93,6 +93,14 @@
           <Icon icon="ep:plus" class="mr-5px" /> 新增
         </el-button>
         <el-button
+          type="warning"
+          plain
+          @click="handleImport"
+          v-hasPermi="['${permissionPrefix}:import']"
+        >
+          <Icon icon="ep:upload" class="mr-5px" /> 导入
+        </el-button>
+        <el-button
           type="success"
           plain
           @click="handleExport"
@@ -238,6 +246,43 @@
     />
   </ContentWrap>
 
+  <!-- 导入弹窗 -->
+  <Dialog v-model="importDialogVisible" title="${table.classComment}导入" width="400">
+    <el-upload
+      ref="uploadRef"
+      v-model:file-list="fileList"
+      :auto-upload="false"
+      :disabled="importFormLoading"
+      :limit="1"
+      :on-exceed="handleImportExceed"
+      accept=".xlsx, .xls"
+      action="none"
+      drag
+    >
+      <Icon icon="ep:upload" />
+      <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+      <template #tip>
+        <div class="el-upload__tip text-center">
+          <span>仅允许导入 xls、xlsx 格式文件。</span>
+          <el-link
+            :underline="false"
+            style="font-size: 12px; vertical-align: baseline"
+            type="primary"
+            @click="handleImportTemplate"
+          >
+            下载模板
+          </el-link>
+        </div>
+      </template>
+    </el-upload>
+    <template #footer>
+      <el-button :disabled="importFormLoading" type="primary" @click="submitImportForm">
+        确 定
+      </el-button>
+      <el-button @click="importDialogVisible = false">取 消</el-button>
+    </template>
+  </Dialog>
+
   <!-- 表单弹窗：添加/修改 -->
   <${simpleClassName}Form ref="formRef" @success="getList" />
 ## 特殊：主子表专属逻辑
@@ -263,6 +308,7 @@
 import { getIntDictOptions, getStrDictOptions, getBoolDictOptions, DICT_TYPE } from '@/utils/dict'
 import { isEmpty } from '@/utils/is'
 import { dateFormatter } from '@/utils/formatTime'
+import type { UploadUserFile } from 'element-plus'
 ## 特殊：树表专属逻辑
 #if ( $table.templateType == 2 )
 import { handleTree } from '@/utils/tree'
@@ -308,6 +354,10 @@ const queryParams = reactive({
 })
 const queryFormRef = ref() // 搜索的表单
 const exportLoading = ref(false) // 导出的加载中
+const importDialogVisible = ref(false) // 导入弹窗
+const importFormLoading = ref(false) // 导入的加载中
+const uploadRef = ref()
+const fileList = ref<UploadUserFile[]>([])
 
 /** 查询列表 */
 const getList = async () => {
@@ -343,6 +393,58 @@ const resetQuery = () => {
 const formRef = ref()
 const openForm = (type: string, id?: number) => {
   formRef.value.open(type, id)
+}
+
+/** 导入按钮操作 */
+const handleImport = async () => {
+  importDialogVisible.value = true
+  await resetImportForm()
+}
+
+/** 提交导入 */
+const submitImportForm = async () => {
+  if (fileList.value.length === 0) {
+    message.error('请上传文件')
+    return
+  }
+  importFormLoading.value = true
+  try {
+    const formData = new FormData()
+    formData.append('file', fileList.value[0].raw as Blob)
+    const res = await ${simpleClassName}Api.import${simpleClassName}(formData)
+    const data = res.data
+    let text = '导入成功数量：' + data.successCount + '；导入失败数量：' + data.failureCount + '；'
+    if (data.failureCount > 0) {
+      for (const rowNo in data.failureRows) {
+        text += '< 第' + rowNo + '行: ' + data.failureRows[rowNo] + ' >'
+      }
+    }
+    message.alert(text)
+    importDialogVisible.value = false
+    await getList()
+  } catch {
+  } finally {
+    importFormLoading.value = false
+    await resetImportForm()
+  }
+}
+
+/** 下载导入模板 */
+const handleImportTemplate = async () => {
+  const data = await ${simpleClassName}Api.import${simpleClassName}Template()
+  download.excel(data, '${table.classComment}导入模板.xls')
+}
+
+/** 导入文件超限 */
+const handleImportExceed = (): void => {
+  message.error('最多只能上传一个文件！')
+}
+
+/** 重置导入表单 */
+const resetImportForm = async () => {
+  fileList.value = []
+  await nextTick()
+  uploadRef.value?.clearFiles()
 }
 
 /** 删除按钮操作 */

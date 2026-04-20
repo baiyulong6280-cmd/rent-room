@@ -72,6 +72,8 @@ public class CodegenEngine {
             .put(javaTemplatePath("controller/vo/listReqVO"), javaModuleImplVOFilePath("ListReqVO"))
             .put(javaTemplatePath("controller/vo/respVO"), javaModuleImplVOFilePath("RespVO"))
             .put(javaTemplatePath("controller/vo/saveReqVO"), javaModuleImplVOFilePath("SaveReqVO"))
+            .put(javaTemplatePath("controller/vo/importExcelVO"), javaModuleImplVOFilePath("ImportExcelVO"))
+            .put(javaTemplatePath("controller/vo/importRespVO"), javaModuleImplVOFilePath("ImportRespVO"))
             .put(javaTemplatePath("controller/controller"), javaModuleImplControllerFilePath())
             .put(javaTemplatePath("dal/do"),
                     javaModuleImplMainFilePath("dal/dataobject/${table.businessName}/${table.className}DO"))

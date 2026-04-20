@@ -7,6 +7,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import ${basePackage}.module.${table.moduleName}.controller.${sceneEnum.basePackage}.${table.businessName}.vo.*;
 import ${basePackage}.module.${table.moduleName}.dal.dataobject.${table.businessName}.${table.className}DO;
 ## 特殊：主子表专属逻辑
@@ -90,6 +91,46 @@ public class ${table.className}ServiceImpl implements ${table.className}Service 
 #end
         // 返回
         return ${classNameVar}.getId();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ${sceneEnum.prefixClass}${table.className}ImportRespVO import${simpleClassName}List(List<${sceneEnum.prefixClass}${table.className}ImportExcelVO> importList) {
+        if (CollUtil.isEmpty(importList)) {
+            return ${sceneEnum.prefixClass}${table.className}ImportRespVO.builder()
+                    .successCount(0)
+                    .failureCount(0)
+                    .failureRows(new LinkedHashMap<>())
+                    .build();
+        }
+        AtomicInteger successCount = new AtomicInteger();
+        Map<Integer, String> failureRows = new LinkedHashMap<>();
+        AtomicInteger index = new AtomicInteger(1);
+        importList.forEach(importItem -> {
+            int currentIndex = index.getAndIncrement();
+            try {
+                create${simpleClassName}(BeanUtils.toBean(importItem, ${saveReqVOClass}.class));
+                successCount.incrementAndGet();
+            } catch (Exception ex) {
+                failureRows.put(currentIndex, resolveImportFailureMessage(ex));
+            }
+        });
+        return ${sceneEnum.prefixClass}${table.className}ImportRespVO.builder()
+                .successCount(successCount.get())
+                .failureCount(failureRows.size())
+                .failureRows(failureRows)
+                .build();
+    }
+
+    /**
+     * 仅返回根因异常信息，避免把 MyBatis 长堆栈直接暴露给前端。
+     */
+    private String resolveImportFailureMessage(Exception ex) {
+        Throwable root = ex;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        return root.getMessage() != null ? root.getMessage() : ex.getMessage();
     }
 
     @Override
@@ -359,6 +400,9 @@ public class ${table.className}ServiceImpl implements ${table.className}Service 
 #else
     #if ( $subTable.subJoinMany)
     private void create${subSimpleClassName}List(${primaryColumn.javaType} ${subJoinColumn.javaField}, List<${subTable.className}DO> list) {
+        if (CollUtil.isEmpty(list)) {
+            return;
+        }
         list.forEach(o -> o.set${SubJoinColumnName}(${subJoinColumn.javaField}).clean());
         ${subClassNameVars.get($index)}Mapper.insertBatch(list);
     }
