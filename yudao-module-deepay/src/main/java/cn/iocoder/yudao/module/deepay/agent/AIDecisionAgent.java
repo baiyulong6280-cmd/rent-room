@@ -13,6 +13,8 @@ import org.springframework.stereotype.Component;
 import javax.annotation.Resource;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -58,14 +60,24 @@ public class AIDecisionAgent implements Agent {
             throw new IllegalStateException("AIDecisionAgent: designImages 为空");
         }
 
+        // Phase 6 — 先按品类 + 风格过滤候选集，再选最高分
+        List<String> candidates = filterCandidates(ctx);
+        if (candidates.isEmpty()) {
+            // 过滤后无候选 → 回退到全量（防止流程中断）
+            log.warn("AIDecisionAgent: 过滤后无候选图，回退到全量 category={} style={}",
+                    ctx.category, ctx.style);
+            candidates = new ArrayList<>(ctx.designImages);
+        }
+
         // 选最高分图
-        String best = ctx.designImages.get(0);
+        String best = candidates.get(0);
         int   bestScore = 0;
         if (ctx.imageScores != null) {
-            for (Map.Entry<String, Integer> e : ctx.imageScores.entrySet()) {
-                if (e.getValue() > bestScore) {
-                    bestScore = e.getValue();
-                    best      = e.getKey();
+            for (String img : candidates) {
+                int score = ctx.imageScores.getOrDefault(img, 0);
+                if (score > bestScore) {
+                    bestScore = score;
+                    best      = img;
                 }
             }
         }
@@ -77,7 +89,8 @@ public class AIDecisionAgent implements Agent {
             ctx.needRedesign  = true;
             ctx.shouldProduce = false;
             ctx.action        = "REDESIGN";
-            ctx.decisionReason = "最高分=" + bestScore + "，低于阈值" + REDESIGN_THRESHOLD + "，触发重新设计";
+            ctx.decisionReason = "最高分=" + bestScore + "，低于阈值" + REDESIGN_THRESHOLD
+                    + "，触发重新设计（过滤后候选=" + candidates.size() + "）";
         } else {
             ctx.needRedesign  = false;
 
@@ -92,7 +105,8 @@ public class AIDecisionAgent implements Agent {
                 ctx.shouldProduce = true;
                 ctx.action        = "BOOST";
                 ctx.decisionReason = "最高分=" + bestScore + "，选中图片=" + best
-                        + "，预估ROI=" + estimatedRoi + "，建议售价=" + ctx.suggestPrice;
+                        + "，预估ROI=" + estimatedRoi + "，建议售价=" + ctx.suggestPrice
+                        + "，品类=" + ctx.category + "，风格=" + ctx.style;
             }
         }
 
@@ -114,6 +128,54 @@ public class AIDecisionAgent implements Agent {
 
         log.info("AIDecisionAgent: action={} suggestPrice={} reason={}", ctx.action, ctx.suggestPrice, ctx.decisionReason);
         return ctx;
+    }
+
+    /**
+     * Phase 6 — 按品类 + 风格过滤候选图片。
+     *
+     * <p>匹配规则（宽松）：
+     * <ol>
+     *   <li>图片引用包含 ctx.category（品类必须匹配）</li>
+     *   <li>图片引用包含 ctx.style（风格匹配，可选加分）</li>
+     *   <li>保底图（含 "default"）和趋势图（"deepay://trend/"）始终放行</li>
+     * </ol>
+     * 若 category 和 style 均为空，返回全量候选。</p>
+     */
+    private List<String> filterCandidates(Context ctx) {
+        if (!org.springframework.util.StringUtils.hasText(ctx.category)
+                && !org.springframework.util.StringUtils.hasText(ctx.style)) {
+            return new ArrayList<>(ctx.designImages);
+        }
+
+        String cat   = ctx.category != null ? ctx.category.toLowerCase() : null;
+        String style = ctx.style    != null ? ctx.style.toLowerCase()    : null;
+
+        // 先选品类 + 风格都匹配的
+        List<String> both = ctx.designImages.stream()
+                .filter(img -> matchesCat(img, cat) && matchesStyle(img, style))
+                .collect(java.util.stream.Collectors.toList());
+        if (!both.isEmpty()) return both;
+
+        // 退而求其次：只要品类匹配
+        if (cat != null) {
+            List<String> catOnly = ctx.designImages.stream()
+                    .filter(img -> matchesCat(img, cat))
+                    .collect(java.util.stream.Collectors.toList());
+            if (!catOnly.isEmpty()) return catOnly;
+        }
+
+        return new ArrayList<>(ctx.designImages);
+    }
+
+    private boolean matchesCat(String img, String cat) {
+        if (cat == null) return true;
+        String lower = img.toLowerCase();
+        return lower.contains(cat) || lower.contains("default") || lower.startsWith("deepay://trend/");
+    }
+
+    private boolean matchesStyle(String img, String style) {
+        if (style == null) return true;
+        return img.toLowerCase().contains(style) || img.toLowerCase().contains("default");
     }
 
     /**

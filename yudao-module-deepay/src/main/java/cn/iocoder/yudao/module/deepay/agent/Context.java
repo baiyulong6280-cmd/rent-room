@@ -105,6 +105,28 @@ public class Context {
     public String action;           // BOOST / STOP / REDESIGN
     public String analyticsReport;
 
+    // ===== Phase 6 客户画像（记忆 + 个性化）=====
+    /** 客户 ID（B2B 客户或用户 ID，关联 deepay_customer_profile） */
+    public Long customerId;
+    /** 品类（如 外套 / 内裤 / 连衣裙），SmartQuestionAgent 填充或从画像加载 */
+    public String category;
+    /** 风格（如 minimalist / streetwear / luxury） */
+    public String style;
+    /** 目标市场：CN / EU / US / ME */
+    public String market;
+    /** 价格带：LOW / MID / HIGH */
+    public String priceLevel;
+    /** 目标年龄：YOUNG / MIDDLE / ELDER */
+    public String targetAge;
+    /** 目标性别：MALE / FEMALE / UNISEX */
+    public String gender;
+    /** 客户画像置信度（0~1），低于 0.6 时触发 SmartQuestionAgent */
+    public java.math.BigDecimal confidenceScore;
+    /** TrendSourceAgent 输出：趋势图 URL 列表（来自内部近7天热销） */
+    public java.util.List<String> trendImages;
+    /** TrendSourceAgent 输出：趋势关键词 */
+    public java.util.List<String> trendKeywords;
+
     // ===== 向后兼容（ChainOrchestrator）=====
     /** @deprecated 使用 keyword */
     @Deprecated public String prompt;
