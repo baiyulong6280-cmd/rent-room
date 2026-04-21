@@ -38,4 +38,7 @@ public class DeepayStyleChainDO {
     /** 记录创建时间 */
     private LocalDateTime createdAt;
 
+    /** ima 知识库 ID（异步同步成功后写入，失败时为 null） */
+    private String imaKbId;
+
 }
