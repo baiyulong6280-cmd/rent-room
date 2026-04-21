@@ -30,7 +30,8 @@ public class DeepayStyleChainDO {
     /**
      * 记录状态。
      * <ul>
-     *   <li>{@code CREATED} —— 已创建，等待后续流程</li>
+     *   <li>{@code CREATED}   —— 已创建链码</li>
+     *   <li>{@code PUBLISHED} —— 已上架</li>
      * </ul>
      */
     private String status;
@@ -41,4 +42,22 @@ public class DeepayStyleChainDO {
     /** ima 知识库 ID（异步同步成功后写入，失败时为 null） */
     private String imaKbId;
 
+    // ==================== 第三阶段：完整流水线扩展字段 ====================
+
+    /** TrendAgent 识别的爆款关键词 */
+    private String trendKeyword;
+
+    /** PatternAgent 生成的打版编码 */
+    private String patternCode;
+
+    /** PricingAgent 定价（单位：分） */
+    private Integer price;
+
+    /** PaymentAgent 合并收款链接（Jeepay|Swan 格式） */
+    private String paymentLink;
+
+    /** InventoryAgent 初始库存数量 */
+    private Integer initialStock;
+
 }
+

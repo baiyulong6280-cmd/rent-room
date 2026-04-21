@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.deepay.controller;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.module.deepay.agent.Context;
 import cn.iocoder.yudao.module.deepay.orchestrator.ChainOrchestrator;
+import cn.iocoder.yudao.module.deepay.orchestrator.ProductionOrchestrator;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.validation.annotation.Validated;
@@ -22,8 +23,10 @@ import static cn.iocoder.yudao.framework.common.pojo.CommonResult.success;
 /**
  * Deepay 商品生成接口。
  *
- * <p>POST /api/create-product —— 接收一句话 prompt，触发完整的
- * 「设计 → 选图 → 链码落库 → 支付 IBAN」流水线，返回可售卖链接。</p>
+ * <p>
+ * POST /api/create-product    —— 轻量版（链码 + IBAN，原有接口）<br>
+ * POST /api/produce           —— 完整版（11 Agent 全流程）
+ * </p>
  */
 @Tag(name = "Deepay - 商品生成")
 @RestController
@@ -33,6 +36,13 @@ public class DeepayProductController {
 
     @Resource
     private ChainOrchestrator chainOrchestrator;
+
+    @Resource
+    private ProductionOrchestrator productionOrchestrator;
+
+    // ----------------------------------------------------------------
+    // 旧接口（保持兼容）
+    // ----------------------------------------------------------------
 
     @PostMapping("/create-product")
     @Operation(summary = "一句话生成商品（含链码+支付IBAN）")
@@ -47,7 +57,33 @@ public class DeepayProductController {
         return success(resp);
     }
 
-    // -------------------------------- 内部请求 VO --------------------------------
+    // ----------------------------------------------------------------
+    // 完整生产流水线（11 Agent Orchestrator）
+    // ----------------------------------------------------------------
+
+    @PostMapping("/produce")
+    @Operation(summary = "完整生产流水线（找爆款→改款→评估→决策→打版→商品→定价→上架→收款→库存→复盘）")
+    public CommonResult<Map<String, Object>> produce(@Valid @RequestBody ReqVO reqVO) {
+        Context ctx = productionOrchestrator.run(reqVO.getPrompt());
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("chainCode",       ctx.chainCode);
+        resp.put("trendKeyword",    ctx.trendKeyword);
+        resp.put("patternCode",     ctx.patternCode);
+        resp.put("image",           ctx.selectedImage);
+        resp.put("price",           ctx.price != null ? String.format("%.2f", ctx.price / 100.0) + " 元" : null);
+        resp.put("initialStock",    ctx.initialStock);
+        resp.put("publishStatus",   ctx.publishStatus);
+        resp.put("jeepayLink",      ctx.jeepayLink);
+        resp.put("swanLink",        ctx.swanLink);
+        resp.put("link",            "https://deepay.link/" + ctx.chainCode);
+        resp.put("analyticsReport", ctx.analyticsReport);
+        return success(resp);
+    }
+
+    // ----------------------------------------------------------------
+    // 内部请求 VO
+    // ----------------------------------------------------------------
 
     /** 创建商品请求体 */
     public static class ReqVO {
@@ -65,3 +101,4 @@ public class DeepayProductController {
     }
 
 }
+
