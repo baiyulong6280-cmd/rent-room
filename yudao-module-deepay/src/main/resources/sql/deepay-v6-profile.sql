@@ -70,7 +70,27 @@ ALTER TABLE deepay_metrics
         AFTER category;
 
 -- ============================================================
--- 5. 历史数据回填（可选，生产环境谨慎执行）
+-- 5. 用户选择记录表（"越用越准"核心）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS deepay_user_selection (
+    id              BIGINT       NOT NULL AUTO_INCREMENT    COMMENT '主键',
+    user_id         VARCHAR(64)  NOT NULL                   COMMENT '外部用户 ID（与 deepay_user_profile.user_id 对应）',
+    chain_code      VARCHAR(64)  NULL                       COMMENT '关联链码，可追溯完整生产链路',
+    selected_image  VARCHAR(512) NULL                       COMMENT '用户选中的设计图 CDN 地址',
+    category        VARCHAR(64)  NULL                       COMMENT '本次选择品类（外套/内裤等）',
+    style           VARCHAR(64)  NULL                       COMMENT '本次选择风格标签（SEXY/MINIMAL等）',
+    market          VARCHAR(16)  NULL                       COMMENT '本次目标市场（CN/EU/US/ME）',
+    score           INT          NULL                       COMMENT '设计图评分（JudgeAgent 打分）',
+    created_at      DATETIME     NOT NULL                   COMMENT '选择时间',
+    PRIMARY KEY (id),
+    INDEX idx_user_id  (user_id),
+    INDEX idx_category (category),
+    INDEX idx_user_category (user_id, category)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='用户选图记录（SelectionAgent 写入，TrendAgent 下次优先返回同类目款式）';
+
+-- ============================================================
+-- 6. 历史数据回填（可选，生产环境谨慎执行）
 --    将 deepay_metrics.category 复制到 deepay_product.category（按 chain_code 关联）
 -- ============================================================
 -- UPDATE deepay_product p
