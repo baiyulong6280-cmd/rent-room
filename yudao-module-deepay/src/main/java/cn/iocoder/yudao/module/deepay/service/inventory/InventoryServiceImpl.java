@@ -75,7 +75,8 @@ public class InventoryServiceImpl implements InventoryService {
         log.info("InventoryService: 下单锁定库存，chainCode={}, stock={}, lockedStock={}",
                 chainCode, inv.getStock(), inv.getLockedStock());
 
-        // 库存为 0 时自动触发生产
+        // 库存降至 0 时自动触发生产（此时当前线程是使库存归零的那个请求）
+        // NOTE: 高并发场景建议对 chainCode 行加悲观锁（SELECT FOR UPDATE），MVP 阶段通过 @Transactional 保证基本一致性
         if (inv.getStock() == 0) {
             triggerProduction(chainCode);
         }
@@ -89,6 +90,9 @@ public class InventoryServiceImpl implements InventoryService {
     @Transactional(rollbackFor = Exception.class)
     public void confirmPayment(String chainCode) {
         DeepayInventoryDO inv = getExistingInventory(chainCode);
+        if (inv.getLockedStock() <= 0) {
+            log.warn("InventoryService: 支付确认时锁定库存已为 0，可能存在数据不一致，chainCode={}", chainCode);
+        }
         int newLocked = Math.max(0, inv.getLockedStock() - 1);
         inv.setLockedStock(newLocked);
         inv.setUpdatedAt(LocalDateTime.now());
