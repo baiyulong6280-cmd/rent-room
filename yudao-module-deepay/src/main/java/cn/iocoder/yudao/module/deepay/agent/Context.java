@@ -83,6 +83,24 @@ public class Context {
     /** 投资回报率 = profit / costPrice，Payment 回调 & Scheduler 决策依据 */
     public java.math.BigDecimal roi;
 
+    // ===== Phase 5 B2B 批发 =====
+    /** 客户 ID（批发场景） */
+    public Long clientId;
+    /** 客户等级 A/B/C，由 ClientAgent 注入，影响定价与供货优先级 */
+    public String clientLevel;
+    /** 批发数量（下单件数，影响阶梯定价） */
+    public Integer wholesaleQty;
+    /** 批发折扣后的单价 */
+    public java.math.BigDecimal wholesalePrice;
+    /** 本单批发总利润 = (wholesalePrice - costPrice) × wholesaleQty */
+    public java.math.BigDecimal wholesaleProfit;
+    /** DemandAgent 预测销量（未来 7 天） */
+    public Integer predictedDemand;
+    /** DemandAgent 预测置信度（0~1） */
+    public java.math.BigDecimal demandConfidence;
+    /** ProductionPlanner 建议生产量 */
+    public Integer suggestedProductionQty;
+
     // ===== 分析 =====
     public String action;           // BOOST / STOP / REDESIGN
     public String analyticsReport;

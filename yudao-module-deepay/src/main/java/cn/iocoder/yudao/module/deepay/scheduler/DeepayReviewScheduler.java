@@ -1,37 +1,36 @@
 package cn.iocoder.yudao.module.deepay.scheduler;
 
 import cn.iocoder.yudao.module.deepay.agent.Context;
-import cn.iocoder.yudao.module.deepay.dal.dataobject.DeepayInventoryDO;
+import cn.iocoder.yudao.module.deepay.agent.InventoryAgent;
 import cn.iocoder.yudao.module.deepay.dal.dataobject.DeepayMetricsDO;
 import cn.iocoder.yudao.module.deepay.dal.dataobject.DeepayProductDO;
 import cn.iocoder.yudao.module.deepay.dal.dataobject.DeepayStyleChainDO;
-import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayInventoryMapper;
 import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayMetricsMapper;
-import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayStyleChainMapper;
 import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayProductMapper;
+import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayStyleChainMapper;
 import cn.iocoder.yudao.module.deepay.orchestrator.ProductionOrchestrator;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import cn.iocoder.yudao.module.deepay.service.DeepayAuditService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 自动复盘调度器 — 系统智能来源（闭环核心）。
+ * 自动复盘调度器（Phase 4 升级版）— ROI 驱动决策。
  *
- * <p>每小时扫描所有在售商品，根据销售量自动决策：
+ * <p>每小时扫描所有在售商品，核心决策逻辑从"看销量"升级为"看 ROI"：
  * <pre>
- *   soldCount ≥ BOOST 阈值  → BOOST    （继续推广，低库存时自动补货）
- *   soldCount ≤ STOP  阈值  → STOP     （下架，停止运营）
- *   其他                    → REDESIGN （改款，触发全新生产流水线）
+ *   ROI &gt; BOOST_ROI_THRESHOLD  → BOOST  （盈利强，ROI 驱动补货）
+ *   ROI &lt; STOP_ROI_THRESHOLD   → STOP   （亏钱，下架止损）
+ *   其他                         → REDESIGN（换款）
  * </pre>
- * 阈值由历史销售均值 ± 标准差动态计算，无历史数据时 fallback 到静态值 BOOST=8 / STOP=2。
+ * 无 ROI 数据时降级为原始销量逻辑（兼容首批无成本数据商品）。
  * 每次决策结果写入 deepay_metrics（可追溯）。
- * REDESIGN 分支调用 {@link ProductionOrchestrator#run(Context)} 从头重跑（可循环）。
  * </p>
  */
 @Component
@@ -39,21 +38,25 @@ public class DeepayReviewScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(DeepayReviewScheduler.class);
 
+    // Phase 4 ROI 阈值
+    private static final BigDecimal BOOST_ROI_THRESHOLD    = new BigDecimal("0.5");
+    private static final BigDecimal STOP_ROI_THRESHOLD     = new BigDecimal("0.1");
+
+    // 销量兜底阈值（无 ROI 时使用）
     private static final int BOOST_THRESHOLD     = 8;
     private static final int STOP_THRESHOLD      = 2;
-    private static final int LOW_STOCK_THRESHOLD = 3;
-    private static final int RESTOCK_DELTA       = 10;
 
     @Resource private DeepayProductMapper    deepayProductMapper;
     @Resource private DeepayMetricsMapper    deepayMetricsMapper;
-    @Resource private DeepayInventoryMapper  deepayInventoryMapper;
     @Resource private DeepayStyleChainMapper deepayStyleChainMapper;
     @Resource private ProductionOrchestrator productionOrchestrator;
+    @Resource private InventoryAgent         inventoryAgent;
+    @Resource private DeepayAuditService     auditService;
 
     /** 每小时整点执行一次复盘。 */
     @Scheduled(cron = "0 0 * * * *")
     public void review() {
-        log.info("=== 自动复盘开始 ===");
+        log.info("=== 自动复盘开始（ROI 驱动）===");
 
         List<DeepayProductDO> sellingProducts = deepayProductMapper.selectBySelling();
         if (sellingProducts.isEmpty()) {
@@ -61,29 +64,9 @@ public class DeepayReviewScheduler {
             return;
         }
 
-        // 动态阈值：均值 ± 标准差（无历史数据时 fallback 到静态常量）
-        int boostThreshold = BOOST_THRESHOLD;
-        int stopThreshold  = STOP_THRESHOLD;
-        try {
-            Double mean   = deepayMetricsMapper.selectAvgSoldCount();
-            Double stddev = deepayMetricsMapper.selectStddevSoldCount();
-            if (mean != null && stddev != null) {
-                boostThreshold = Math.max(1, (int) Math.round(mean + stddev));
-                stopThreshold  = Math.max(0, (int) Math.round(mean - stddev));
-                log.info("自动复盘：动态阈值 — 均值={} 标准差={} BOOST>={} STOP<={}",
-                        String.format("%.2f", mean), String.format("%.2f", stddev),
-                        boostThreshold, stopThreshold);
-            } else {
-                log.info("自动复盘：暂无历史销售数据，使用静态阈值 BOOST>={} STOP<={}",
-                        boostThreshold, stopThreshold);
-            }
-        } catch (Exception e) {
-            log.warn("自动复盘：计算动态阈值失败，使用静态阈值", e);
-        }
-
         for (DeepayProductDO product : sellingProducts) {
             try {
-                reviewOne(product, boostThreshold, stopThreshold);
+                reviewOne(product);
             } catch (Exception e) {
                 log.error("自动复盘：处理异常 chainCode={}", product.getChainCode(), e);
             }
@@ -94,66 +77,94 @@ public class DeepayReviewScheduler {
 
     // ----------------------------------------------------------------
 
-    private void reviewOne(DeepayProductDO product, int boostThreshold, int stopThreshold) {
+    private void reviewOne(DeepayProductDO product) {
         String chainCode = product.getChainCode();
-        int soldCount    = product.getSoldCount() != null ? product.getSoldCount() : 0;
+
+        // Phase 4：优先读 ROI 决策；无 ROI 时降级为销量
+        BigDecimal roi = null;
+        try {
+            roi = deepayMetricsMapper.selectLatestRoiByChainCode(chainCode);
+        } catch (Exception e) {
+            log.warn("复盘：查询 ROI 失败 chainCode={}", chainCode, e);
+        }
 
         String action;
         String reason;
 
-        if (soldCount >= boostThreshold) {
-            action = "BOOST";
-            reason = "soldCount=" + soldCount + " ≥ " + boostThreshold + "，卖得快，继续推广";
-            doBoost(product);
-        } else if (soldCount <= stopThreshold) {
-            action = "STOP";
-            reason = "soldCount=" + soldCount + " ≤ " + stopThreshold + "，滞销，执行下架";
-            doStop(product);
+        if (roi != null) {
+            // Phase 4 ROI 决策
+            if (roi.compareTo(BOOST_ROI_THRESHOLD) > 0) {
+                action = "BOOST";
+                reason = "ROI=" + roi + " > " + BOOST_ROI_THRESHOLD + "，盈利强，ROI 驱动补货";
+                doBoost(product, roi);
+            } else if (roi.compareTo(STOP_ROI_THRESHOLD) <= 0) {
+                action = "STOP";
+                reason = "ROI=" + roi + " ≤ " + STOP_ROI_THRESHOLD + "，亏钱，执行下架止损";
+                doStop(product);
+            } else {
+                action = "REDESIGN";
+                reason = "ROI=" + roi + "，盈利不足，触发改款重新生产";
+                doRedesign(product);
+            }
         } else {
-            action = "REDESIGN";
-            reason = "soldCount=" + soldCount + "，表现一般，触发改款重新生产";
-            doRedesign(product);
+            // 降级：无 ROI 数据时用销量兜底
+            int soldCount = product.getSoldCount() != null ? product.getSoldCount() : 0;
+            if (soldCount >= BOOST_THRESHOLD) {
+                action = "BOOST";
+                reason = "soldCount=" + soldCount + "（无 ROI 数据，销量兜底）";
+                doBoost(product, null);
+            } else if (soldCount <= STOP_THRESHOLD) {
+                action = "STOP";
+                reason = "soldCount=" + soldCount + "（无 ROI 数据，销量兜底下架）";
+                doStop(product);
+            } else {
+                action = "REDESIGN";
+                reason = "soldCount=" + soldCount + "（无 ROI 数据，销量兜底改款）";
+                doRedesign(product);
+            }
         }
 
-        // 写入复盘快照（可追溯，每条记录独立保留）
+        // 写入复盘快照（可追溯）
         DeepayMetricsDO snapshot = new DeepayMetricsDO();
         snapshot.setChainCode(chainCode);
-        snapshot.setSoldCount(soldCount);
+        snapshot.setSoldCount(product.getSoldCount() != null ? product.getSoldCount() : 0);
         snapshot.setPrice(product.getPrice());
+        snapshot.setCostPrice(product.getCostPrice());
+        snapshot.setRoi(roi);
         snapshot.setCategory("REVIEW:" + action + " | " + reason);
         snapshot.setCreatedAt(LocalDateTime.now());
         deepayMetricsMapper.insert(snapshot);
 
+        auditService.log(chainCode, action, "status=SELLING roi=" + roi, reason);
         log.info("[复盘] chainCode={} action={} reason={}", chainCode, action, reason);
     }
 
-    /** BOOST — 库存不足时自动补货，状态保持 SELLING */
-    private void doBoost(DeepayProductDO product) {
-        DeepayInventoryDO inv = deepayInventoryMapper.selectByChainCode(product.getChainCode());
-        if (inv != null && inv.getStock() < LOW_STOCK_THRESHOLD) {
-            deepayInventoryMapper.update(null, new LambdaUpdateWrapper<DeepayInventoryDO>()
-                    .eq(DeepayInventoryDO::getChainCode, product.getChainCode())
-                    .setSql("stock = stock + " + RESTOCK_DELTA));
-            deepayProductMapper.addStock(product.getId(), RESTOCK_DELTA);
-            log.info("[BOOST] 自动补货 chainCode={} +{}", product.getChainCode(), RESTOCK_DELTA);
-        }
-        deepayProductMapper.updateStatus(product.getId(), "SELLING");
+    /** BOOST — Phase 4 ROI 驱动补货，仅在盈利充分时补库存 */
+    private void doBoost(DeepayProductDO product, BigDecimal roi) {
+        inventoryAgent.restockIfProfitable(product.getChainCode(), roi);
+        // 状态机守卫：SELLING → SELLING（保持，return value ignored）
+        deepayProductMapper.updateStatusGuarded(product.getId(), "SELLING", "SELLING");
     }
 
-    /** STOP — 下架商品 */
+    /** STOP — 状态机守卫：只允许从 SELLING 下架 */
     private void doStop(DeepayProductDO product) {
-        deepayProductMapper.updateStatus(product.getId(), "STOPPED");
+        int rows = deepayProductMapper.updateStatusGuarded(product.getId(), "STOPPED", "SELLING");
+        if (rows == 0) {
+            log.warn("[STOP] 状态机拒绝：商品已不在 SELLING 状态 chainCode={}", product.getChainCode());
+            return;
+        }
         log.info("[STOP] 商品已下架 chainCode={}", product.getChainCode());
     }
 
-    /**
-     * REDESIGN — 将当前商品标记为 REDESIGNING，然后用原始 keyword
-     * 触发完整生产流水线，生成新的 chainCode 商品（卖 → 再做 闭环）。
-     */
+    /** REDESIGN — 状态机守卫：SELLING → REDESIGNING，触发全新生产流水线 */
     private void doRedesign(DeepayProductDO product) {
-        deepayProductMapper.updateStatus(product.getId(), "REDESIGNING");
+        int rows = deepayProductMapper.updateStatusGuarded(
+                product.getId(), "REDESIGNING", "SELLING");
+        if (rows == 0) {
+            log.warn("[REDESIGN] 状态机拒绝：商品已不在 SELLING 状态 chainCode={}", product.getChainCode());
+            return;
+        }
 
-        // 优先从 deepay_style_chain 取原始 keyword（ChainAgent 落库时记录，与 title 格式无关）
         String keyword = null;
         if (product.getChainCode() != null) {
             DeepayStyleChainDO chain = deepayStyleChainMapper.selectByChainCode(product.getChainCode());
@@ -161,18 +172,15 @@ public class DeepayReviewScheduler {
                 keyword = chain.getKeyword();
             }
         }
-        // 兜底：直接使用商品标题（keyword 信息缺失时可接受的降级）
         if (keyword == null) {
             keyword = product.getTitle() != null ? product.getTitle() : "新款";
         }
 
         log.info("[REDESIGN] 触发重新生产 chainCode={} keyword={}", product.getChainCode(), keyword);
-
         Context ctx = new Context();
         ctx.keyword = keyword;
         productionOrchestrator.run(ctx);
-
-        log.info("[REDESIGN] 新品已完成 新chainCode={} url={}", ctx.chainCode, ctx.productUrl);
+        log.info("[REDESIGN] 新品已完成 新chainCode={}", ctx.chainCode);
     }
 
 }

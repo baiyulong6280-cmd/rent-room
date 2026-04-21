@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.deepay.dal.dataobject;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -30,9 +31,11 @@ public class DeepayLogDO {
     private String action;
 
     /** 操作前的状态或数值（JSON 或文本） */
+    @TableField("before_val")
     private String before;
 
     /** 操作后的状态或数值（JSON 或文本） */
+    @TableField("after_val")
     private String after;
 
     /** 操作时间 */

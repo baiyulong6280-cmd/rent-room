@@ -60,14 +60,39 @@ public class PricingAgent implements Agent {
 
         ctx.price = profitPrice;
 
+        // Phase 5 批发阶梯价（当有 wholesaleQty 时覆盖）
+        if (ctx.wholesaleQty != null && ctx.wholesaleQty > 0) {
+            ctx.wholesalePrice = computeWholesalePrice(profitPrice, ctx.wholesaleQty);
+        }
+
         if (ctx.productId != null) {
             deepayProductMapper.updatePrice(Long.parseLong(ctx.productId), ctx.price);
             deepayProductMapper.updateCostPrice(Long.parseLong(ctx.productId), ctx.costPrice);
         }
 
-        log.info("PricingAgent: 利润定价完成 cost={} profitRate={} price={} productId={}",
-                cost, targetProfitRate, ctx.price, ctx.productId);
+        log.info("PricingAgent: 利润定价完成 cost={} profitRate={} price={} wholesaleQty={} wholesalePrice={}",
+                cost, targetProfitRate, ctx.price, ctx.wholesaleQty, ctx.wholesalePrice);
         return ctx;
+    }
+
+    /**
+     * Phase 5 批发阶梯价：
+     * <pre>
+     *   qty &lt; 50   → price × 1.00（零售价）
+     *   qty &lt; 200  → price × 0.80（批发优惠 20%）
+     *   qty ≥ 200  → price × 0.65（大批量优惠 35%）
+     * </pre>
+     */
+    private BigDecimal computeWholesalePrice(BigDecimal basePrice, int qty) {
+        BigDecimal ratio;
+        if (qty < 50) {
+            ratio = BigDecimal.ONE;
+        } else if (qty < 200) {
+            ratio = new BigDecimal("0.80");
+        } else {
+            ratio = new BigDecimal("0.65");
+        }
+        return basePrice.multiply(ratio).setScale(2, RoundingMode.HALF_UP);
     }
 
     /**

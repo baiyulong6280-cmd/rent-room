@@ -123,8 +123,9 @@ public class CircuitBreakerService {
         if (total >= windowSize && (double) failed / total >= failureRateThreshold) {
             state = 1;
             openSince.set(System.currentTimeMillis());
-            log.error("[CircuitBreaker] {} 失败率={:.0%}，触发熔断，持续 {}s",
-                    name, (double) failed / total, openDurationMs / 1000);
+            String failRate = String.format("%.0f%%", (double) failed / total * 100);
+            log.error("[CircuitBreaker] {} 失败率={}，触发熔断，持续 {}s",
+                    name, failRate, openDurationMs / 1000);
         }
     }
 
