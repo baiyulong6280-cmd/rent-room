@@ -13,6 +13,15 @@
 
 如果这个项目让你有所收获，记得 Star 关注哦，这对我是非常不错的鼓励与支持。
 
+## 🔗 Deepay 一衣一链系统（MVP）
+
+> 进入仓库的开发者请先阅读任务文档 👉 **[docs/deepay/mvp-phase1.md](docs/deepay/mvp-phase1.md)**
+>
+> 实现「一句话 → 设计(模拟) → 选择 → 生成链码并落库 → 生成支付 IBAN(模拟) → 返回可售卖链接」同步闭环。
+> 代码模块：`yudao-module-deepay`，接口：`POST /api/create-product`。
+
+---
+
 ## 🐶 新手必读
 
 * 演示地址【Vue3 + element-plus】：<http://dashboard-vue3.yudao.iocoder.cn>
