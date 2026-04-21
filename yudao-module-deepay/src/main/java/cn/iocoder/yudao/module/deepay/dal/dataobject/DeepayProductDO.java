@@ -39,6 +39,12 @@ public class DeepayProductDO {
     /** 可用库存 */
     private Integer stock;
 
+    /** 生产成本（元），用于计算利润和 ROI */
+    private java.math.BigDecimal costPrice;
+
+    /** CDN 图片地址（FLUX 生成后同步至 CDN） */
+    private String cdnImageUrl;
+
     private LocalDateTime createdAt;
 
 }

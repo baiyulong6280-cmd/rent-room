@@ -45,4 +45,18 @@ public interface DeepayMetricsMapper extends BaseMapperX<DeepayMetricsDO> {
     @Select("SELECT STDDEV(sold_count) FROM deepay_metrics WHERE sold_count IS NOT NULL")
     Double selectStddevSoldCount();
 
+    /**
+     * 查询链码最新一条指标记录的 ROI（用于 ReviewScheduler 利润决策）。
+     * 无记录时返回 null。
+     */
+    @Select("SELECT roi FROM deepay_metrics WHERE chain_code = #{chainCode} AND roi IS NOT NULL ORDER BY created_at DESC LIMIT 1")
+    BigDecimal selectLatestRoiByChainCode(String chainCode);
+
+    /**
+     * 查询链码最新一条指标记录的 profit（用于 ReviewScheduler 展示）。
+     * 无记录时返回 null。
+     */
+    @Select("SELECT profit FROM deepay_metrics WHERE chain_code = #{chainCode} AND profit IS NOT NULL ORDER BY created_at DESC LIMIT 1")
+    BigDecimal selectLatestProfitByChainCode(String chainCode);
+
 }

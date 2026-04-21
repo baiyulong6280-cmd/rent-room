@@ -39,6 +39,15 @@ public class DeepayMetricsDO {
     /** 转化率（pay_count / view_count），取值 0.00~1.00 */
     private BigDecimal conversionRate;
 
+    /** 生产成本快照 */
+    private BigDecimal costPrice;
+
+    /** 单笔利润（price - cost_price） */
+    private BigDecimal profit;
+
+    /** 投资回报率（profit / cost_price） */
+    private BigDecimal roi;
+
     private LocalDateTime createdAt;
 
 }

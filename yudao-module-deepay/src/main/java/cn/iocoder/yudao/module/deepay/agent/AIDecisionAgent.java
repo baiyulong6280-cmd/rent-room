@@ -36,6 +36,13 @@ public class AIDecisionAgent implements Agent {
     private static final int REDESIGN_THRESHOLD = 60;
     private static final BigDecimal DEFAULT_PRICE = new BigDecimal("299");
 
+    /**
+     * Phase 4 ROI 门控：预期 ROI 低于此阈值时不生产，避免"越卖越亏"。
+     * ROI = profit / cost = (price - cost) / cost。
+     * 以 targetProfitRate=0.6 定价时 ROI=0.6；此阈值=0.1 是宽松的安全下线。
+     */
+    private static final BigDecimal MIN_ROI_THRESHOLD = new BigDecimal("0.1");
+
     @Resource
     private DeepayStyleChainMapper deepayStyleChainMapper;
 
@@ -73,9 +80,20 @@ public class AIDecisionAgent implements Agent {
             ctx.decisionReason = "最高分=" + bestScore + "，低于阈值" + REDESIGN_THRESHOLD + "，触发重新设计";
         } else {
             ctx.needRedesign  = false;
-            ctx.shouldProduce = true;
-            ctx.action        = "BOOST";
-            ctx.decisionReason = "最高分=" + bestScore + "，选中图片=" + best + "，建议售价=" + ctx.suggestPrice;
+
+            // Phase 4 ROI 门控：预估 ROI 低于最低阈值时拒绝生产
+            BigDecimal estimatedRoi = estimateRoi(ctx);
+            if (estimatedRoi != null && estimatedRoi.compareTo(MIN_ROI_THRESHOLD) < 0) {
+                ctx.shouldProduce = false;
+                ctx.action        = "STOP";
+                ctx.decisionReason = "最高分=" + bestScore + "，但预估ROI=" + estimatedRoi
+                        + " 低于最低阈值" + MIN_ROI_THRESHOLD + "，不值得生产";
+            } else {
+                ctx.shouldProduce = true;
+                ctx.action        = "BOOST";
+                ctx.decisionReason = "最高分=" + bestScore + "，选中图片=" + best
+                        + "，预估ROI=" + estimatedRoi + "，建议售价=" + ctx.suggestPrice;
+            }
         }
 
         // 落库：回写 deepay_style_chain 决策结果（可解释）
@@ -119,6 +137,25 @@ public class AIDecisionAgent implements Agent {
         }
         log.info("AIDecisionAgent: 品类[{}] 无历史价格数据，使用默认价格 {}", keyword, DEFAULT_PRICE);
         return DEFAULT_PRICE;
+    }
+
+    /**
+     * Phase 4 — 预估本次生产的 ROI。
+     * 公式：ROI = (suggestPrice - costPrice) / costPrice
+     * 若缺少任何值则返回 null（不做 ROI 门控）。
+     */
+    private BigDecimal estimateRoi(Context ctx) {
+        BigDecimal price = ctx.suggestPrice;
+        BigDecimal cost  = ctx.costPrice;
+        if (price == null || cost == null || cost.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        try {
+            return price.subtract(cost).divide(cost, 4, RoundingMode.HALF_UP);
+        } catch (Exception e) {
+            log.warn("AIDecisionAgent: 估算 ROI 失败", e);
+            return null;
+        }
     }
 
 }

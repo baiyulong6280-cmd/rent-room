@@ -66,6 +66,7 @@ public class Context {
     public String paymentId;
     public Boolean paid;
     public String orderId;
+    public Long userId;
 
     // ===== 库存 =====
     public Integer stock;
@@ -73,6 +74,14 @@ public class Context {
 
     // ===== 销售 =====
     public Integer soldCount;
+
+    // ===== 成本与利润（Phase 4 利润驱动核心） =====
+    /** 生产成本（元）；ProductAgent 落库时写入，PricingAgent 据此定价 */
+    public java.math.BigDecimal costPrice;
+    /** 单笔利润 = price - costPrice，Payment 回调时计算 */
+    public java.math.BigDecimal profit;
+    /** 投资回报率 = profit / costPrice，Payment 回调 & Scheduler 决策依据 */
+    public java.math.BigDecimal roi;
 
     // ===== 分析 =====
     public String action;           // BOOST / STOP / REDESIGN
