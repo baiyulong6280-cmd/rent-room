@@ -45,6 +45,21 @@ public class DeepayProductDO {
     /** CDN 图片地址（FLUX 生成后同步至 CDN） */
     private String cdnImageUrl;
 
+    /**
+     * 商品品类（外套 / 内裤 / 裤子 / 上衣 / 连衣裙 …）。
+     * 由 ProductAgent 落库时写入（来自 Context.category）；
+     * TrendAgent 用 WHERE category=? 做精准过滤。
+     */
+    private String category;
+
+    /**
+     * 主图（便捷字段，等价于 cdnImageUrl）。
+     * TrendAgent 通过 {@link #getMainImage()} 读取，避免字段名不一致问题。
+     */
+    public String getMainImage() {
+        return this.cdnImageUrl;
+    }
+
     private LocalDateTime createdAt;
 
 }
