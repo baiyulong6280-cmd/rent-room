@@ -30,6 +30,15 @@ public class DeepayMetricsDO {
     /** 分类（来自 keyword） */
     private String category;
 
+    /** 商品详情页浏览次数 */
+    private Integer viewCount;
+
+    /** 成功支付次数（与 soldCount 对比可得转化率） */
+    private Integer payCount;
+
+    /** 转化率（pay_count / view_count），取值 0.00~1.00 */
+    private BigDecimal conversionRate;
+
     private LocalDateTime createdAt;
 
 }

@@ -24,6 +24,9 @@ public class DeepayOrderDO {
     /** 关联链码 */
     private String chainCode;
 
+    /** 下单用户 ID（与 chain_code 联合唯一，防止同一用户重复下单） */
+    private Long userId;
+
     /** 订单状态：PENDING / PAID / CANCELLED */
     private String status;
 

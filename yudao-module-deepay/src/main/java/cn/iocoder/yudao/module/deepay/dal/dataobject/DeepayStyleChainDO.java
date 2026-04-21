@@ -35,6 +35,9 @@ public class DeepayStyleChainDO {
     /** AI 决策原因（decision_reason） */
     private String decisionReason;
 
+    /** 完整 Context 决策快照（JSON），用于 AI 决策回溯审计 */
+    private String contextSnapshot;
+
     /** 状态：CREATED / PUBLISHED / STOPPED */
     private String status;
 
