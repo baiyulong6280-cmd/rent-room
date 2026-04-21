@@ -51,14 +51,20 @@ public class DeepayProductController {
         productionOrchestrator.run(ctx);
 
         Map<String, Object> resp = new LinkedHashMap<>();
-        resp.put("chainCode", ctx.chainCode);
-        resp.put("image",     ctx.selectedImage);
-        resp.put("price",     ctx.price);
-        resp.put("title",     ctx.title);
-        resp.put("stock",     ctx.stock);
-        resp.put("published", ctx.published);
-        resp.put("productId", ctx.productId);
-        resp.put("report",    ctx.analyticsReport);
+        resp.put("chainCode",   ctx.chainCode);
+        resp.put("image",       ctx.selectedImage);
+        resp.put("price",       ctx.price);
+        resp.put("title",       ctx.title);
+        resp.put("stock",       ctx.stock);
+        resp.put("published",   ctx.published);
+        resp.put("productId",   ctx.productId);
+        resp.put("productUrl",  ctx.productUrl);
+        resp.put("paymentId",   ctx.paymentId);
+        resp.put("orderId",     ctx.orderId);
+        resp.put("patternFile", ctx.patternFile);
+        resp.put("techPackUrl", ctx.techPackUrl);
+        resp.put("action",      ctx.action);
+        resp.put("report",      ctx.analyticsReport);
         return success(resp);
     }
 
