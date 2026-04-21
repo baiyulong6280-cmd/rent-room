@@ -3,8 +3,10 @@ package cn.iocoder.yudao.module.deepay.client.ima;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestTemplate;
 
 /**
  * ima 知识库 HTTP 客户端。
@@ -20,14 +22,14 @@ import org.springframework.web.client.RestClient;
  */
 public class ImaClient {
 
-    private final RestClient restClient;
+    private final RestTemplate restTemplate;
+    private final String baseUrl;
+    private final String apiKey;
 
     public ImaClient(String baseUrl, String apiKey) {
-        this.restClient = RestClient.builder()
-                .baseUrl(baseUrl)
-                .defaultHeader("Authorization", "Bearer " + apiKey)
-                .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                .build();
+        this.baseUrl = baseUrl;
+        this.apiKey = apiKey;
+        this.restTemplate = new RestTemplate();
     }
 
     /**
@@ -39,11 +41,9 @@ public class ImaClient {
      */
     public String createKnowledgeBase(String name, String description) {
         CreateKbRequest request = new CreateKbRequest(name, description);
-        CreateKbResponse response = restClient.post()
-                .uri("/openapi/v1/knowledge-base")
-                .body(request)
-                .retrieve()
-                .body(CreateKbResponse.class);
+        HttpEntity<CreateKbRequest> entity = new HttpEntity<>(request, buildHeaders());
+        CreateKbResponse response = restTemplate.postForObject(
+                baseUrl + "/openapi/v1/knowledge-base", entity, CreateKbResponse.class);
         if (response == null || response.getId() == null) {
             throw new IllegalStateException("ima 返回的知识库 ID 为空，name=" + name);
         }
@@ -58,18 +58,31 @@ public class ImaClient {
      */
     public void uploadImage(String kbId, String imageUrl) {
         UploadDocumentRequest request = new UploadDocumentRequest(imageUrl, "image");
-        restClient.post()
-                .uri("/openapi/v1/knowledge-base/{kbId}/document", kbId)
-                .body(request)
-                .retrieve()
-                .toBodilessEntity();
+        HttpEntity<UploadDocumentRequest> entity = new HttpEntity<>(request, buildHeaders());
+        restTemplate.postForObject(
+                baseUrl + "/openapi/v1/knowledge-base/" + kbId + "/document", entity, Void.class);
+    }
+
+    private HttpHeaders buildHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Authorization", "Bearer " + apiKey);
+        return headers;
     }
 
     // -------------------------------- 请求 / 响应 VO --------------------------------
 
-    private record CreateKbRequest(
-            @JsonProperty("name") String name,
-            @JsonProperty("description") String description) {
+    @Data
+    private static class CreateKbRequest {
+        @JsonProperty("name")
+        private final String name;
+        @JsonProperty("description")
+        private final String description;
+
+        CreateKbRequest(String name, String description) {
+            this.name = name;
+            this.description = description;
+        }
     }
 
     @Data
@@ -80,9 +93,17 @@ public class ImaClient {
         private String id;
     }
 
-    private record UploadDocumentRequest(
-            @JsonProperty("url") String url,
-            @JsonProperty("type") String type) {
+    @Data
+    private static class UploadDocumentRequest {
+        @JsonProperty("url")
+        private final String url;
+        @JsonProperty("type")
+        private final String type;
+
+        UploadDocumentRequest(String url, String type) {
+            this.url = url;
+            this.type = type;
+        }
     }
 
 }
