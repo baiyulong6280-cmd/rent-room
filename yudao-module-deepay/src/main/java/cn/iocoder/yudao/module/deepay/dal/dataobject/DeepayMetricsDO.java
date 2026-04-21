@@ -48,6 +48,12 @@ public class DeepayMetricsDO {
     /** 投资回报率（profit / cost_price） */
     private BigDecimal roi;
 
+    /**
+     * 风格标签（SEXY / CASUAL / SPORT / MINIMAL / LUXURY）。
+     * 由 AnalyticsAgent 在落库时从 Context.style 写入，供 TrendAgent 风格加权排序使用。
+     */
+    private String style;
+
     private LocalDateTime createdAt;
 
 }
