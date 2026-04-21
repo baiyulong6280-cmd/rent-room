@@ -36,10 +36,12 @@ public class ChainAgent implements Agent {
     @Override
     public Context run(Context ctx) {
         String code = generateUniqueCode();
-        // 写库
+
         DeepayStyleChainDO record = new DeepayStyleChainDO();
         record.setChainCode(code);
         record.setImageUrl(ctx.selectedImage);
+        record.setSelectedImage(ctx.selectedImage);
+        record.setKeyword(ctx.keyword);
         record.setStatus("CREATED");
         record.setCreatedAt(LocalDateTime.now());
         deepayStyleChainMapper.insert(record);

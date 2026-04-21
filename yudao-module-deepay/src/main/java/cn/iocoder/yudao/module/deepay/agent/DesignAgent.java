@@ -6,13 +6,8 @@ import org.springframework.stereotype.Component;
 import javax.annotation.Resource;
 
 /**
- * 设计生成 Agent。
- *
- * <p>职责：根据用户的 prompt，通过 {@link FluxService} 调用 AI 生图服务，
- * 将候选图片列表写入 {@link Context#images}。</p>
- *
- * <p>Agent 本身不含任何 HTTP 细节，所有 AI 交互均委托给 Service 层，
- * 替换底层生图能力时无需改动本类或 Orchestrator。</p>
+ * DesignAgent — 根据关键词生成改款图。
+ * 调用 FluxService（已有 AI 生图 + 保底图降级）。
  */
 @Component
 public class DesignAgent implements Agent {
@@ -22,8 +17,10 @@ public class DesignAgent implements Agent {
 
     @Override
     public Context run(Context ctx) {
-        ctx.images = fluxService.generateImages(ctx.prompt);
+        String keyword = ctx.keyword != null ? ctx.keyword : "";
+        ctx.designImages = fluxService.generateImages(keyword);
         return ctx;
     }
 
 }
+

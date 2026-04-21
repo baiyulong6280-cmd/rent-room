@@ -8,56 +8,41 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * Deepay 一衣一链 —— 样式链码表。
- *
- * <p>对应数据库表 {@code deepay_style_chain}。
- * 不继承 BaseDO，保持表结构轻量，仅包含业务必要字段。</p>
+ * deepay_style_chain — 设计链
  */
 @TableName("deepay_style_chain")
 @Data
 public class DeepayStyleChainDO {
 
-    /** 自增主键 */
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    /** 6 位随机大写字母 + 数字链码，全局唯一 */
+    /** 6 位唯一链码 */
     private String chainCode;
 
-    /** 最终选中的设计图片 URL */
+    /** 原始图片 URL（向后兼容） */
     private String imageUrl;
 
-    /**
-     * 记录状态。
-     * <ul>
-     *   <li>{@code CREATED}   —— 已创建链码</li>
-     *   <li>{@code PUBLISHED} —— 已上架</li>
-     * </ul>
-     */
+    /** AI 决策选中的图片（selected_image） */
+    private String selectedImage;
+
+    /** 用户输入关键词，REDESIGN 时重新触发流程用 */
+    private String keyword;
+
+    /** 打版文件路径（pattern_file） */
+    private String patternFile;
+
+    /** AI 决策原因（decision_reason） */
+    private String decisionReason;
+
+    /** 状态：CREATED / PUBLISHED / STOPPED */
     private String status;
 
-    /** 记录创建时间 */
     private LocalDateTime createdAt;
 
-    /** ima 知识库 ID（异步同步成功后写入，失败时为 null） */
+    /** ima 知识库 ID（可选） */
     private String imaKbId;
 
-    // ==================== 第三阶段：完整流水线扩展字段 ====================
-
-    /** TrendAgent 识别的爆款关键词 */
-    private String trendKeyword;
-
-    /** PatternAgent 生成的打版编码 */
-    private String patternCode;
-
-    /** PricingAgent 定价（单位：分） */
-    private Integer price;
-
-    /** PaymentAgent 合并收款链接（Jeepay|Swan 格式） */
-    private String paymentLink;
-
-    /** InventoryAgent 初始库存数量 */
-    private Integer initialStock;
-
 }
+
 
