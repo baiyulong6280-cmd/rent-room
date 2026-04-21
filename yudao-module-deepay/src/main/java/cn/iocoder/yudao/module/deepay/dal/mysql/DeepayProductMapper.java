@@ -16,6 +16,11 @@ public interface DeepayProductMapper extends BaseMapperX<DeepayProductDO> {
                 .eq(DeepayProductDO::getStatus, "SELLING"));
     }
 
+    default DeepayProductDO selectByChainCode(String chainCode) {
+        return selectOne(new LambdaQueryWrapper<DeepayProductDO>()
+                .eq(DeepayProductDO::getChainCode, chainCode));
+    }
+
     default void addStock(Long id, int delta) {
         update(null, new LambdaUpdateWrapper<DeepayProductDO>()
                 .setSql("stock = stock + " + delta)
@@ -32,6 +37,12 @@ public interface DeepayProductMapper extends BaseMapperX<DeepayProductDO> {
     default void updateStatus(Long id, String status) {
         update(null, new LambdaUpdateWrapper<DeepayProductDO>()
                 .set(DeepayProductDO::getStatus, status)
+                .eq(DeepayProductDO::getId, id));
+    }
+
+    default void updatePrice(Long id, java.math.BigDecimal price) {
+        update(null, new LambdaUpdateWrapper<DeepayProductDO>()
+                .set(DeepayProductDO::getPrice, price)
                 .eq(DeepayProductDO::getId, id));
     }
 

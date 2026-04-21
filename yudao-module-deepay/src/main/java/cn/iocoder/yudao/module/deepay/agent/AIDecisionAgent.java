@@ -1,25 +1,126 @@
 package cn.iocoder.yudao.module.deepay.agent;
 
+import cn.iocoder.yudao.module.deepay.dal.dataobject.DeepayDesignVersionDO;
+import cn.iocoder.yudao.module.deepay.dal.dataobject.DeepayStyleChainDO;
+import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayDesignVersionMapper;
+import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayMetricsMapper;
+import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayStyleChainMapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import javax.annotation.Resource;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.Map;
 
 /**
  * AIDecisionAgent — 核心决策：选图 / 是否改款 / 是否生产 / 建议价格。
- * 先 mock，后续接入真实 AI 评分模型。
+ *
+ * <p>原则：
+ * <ol>
+ *   <li><b>可解释</b> — 每次决策原因写入 {@link Context#decisionReason} 并落库 deepay_style_chain。</li>
+ *   <li><b>可追溯</b> — 选中图片回写 deepay_design_version.selected=true。</li>
+ *   <li><b>可替换</b> — 评分逻辑集中在本类，接入真实 AI 模型时只替换此类。</li>
+ * </ol>
+ * 决策规则：取最高分图片，分数 &lt; 60 则触发 REDESIGN；分数 ≥ 60 进入生产。
+ * 建议售价 = 同品类历史均价（无历史时 fallback 到 299）。
+ * </p>
  */
+@Component
 public class AIDecisionAgent implements Agent {
+
+    private static final Logger log = LoggerFactory.getLogger(AIDecisionAgent.class);
+
+    private static final int REDESIGN_THRESHOLD = 60;
+    private static final BigDecimal DEFAULT_PRICE = new BigDecimal("299");
+
+    @Resource
+    private DeepayStyleChainMapper deepayStyleChainMapper;
+
+    @Resource
+    private DeepayDesignVersionMapper deepayDesignVersionMapper;
+
+    @Resource
+    private DeepayMetricsMapper deepayMetricsMapper;
 
     @Override
     public Context run(Context ctx) {
         if (ctx.designImages == null || ctx.designImages.isEmpty()) {
             throw new IllegalStateException("AIDecisionAgent: designImages 为空");
         }
-        ctx.selectedImage  = ctx.designImages.get(0);
-        ctx.needRedesign   = false;
-        ctx.shouldProduce  = true;
-        ctx.suggestPrice   = new BigDecimal("299");
-        ctx.action         = "BOOST";
+
+        // 选最高分图
+        String best = ctx.designImages.get(0);
+        int   bestScore = 0;
+        if (ctx.imageScores != null) {
+            for (Map.Entry<String, Integer> e : ctx.imageScores.entrySet()) {
+                if (e.getValue() > bestScore) {
+                    bestScore = e.getValue();
+                    best      = e.getKey();
+                }
+            }
+        }
+
+        ctx.selectedImage = best;
+        ctx.suggestPrice  = computeSuggestPrice(ctx.keyword);
+
+        if (bestScore < REDESIGN_THRESHOLD) {
+            ctx.needRedesign  = true;
+            ctx.shouldProduce = false;
+            ctx.action        = "REDESIGN";
+            ctx.decisionReason = "最高分=" + bestScore + "，低于阈值" + REDESIGN_THRESHOLD + "，触发重新设计";
+        } else {
+            ctx.needRedesign  = false;
+            ctx.shouldProduce = true;
+            ctx.action        = "BOOST";
+            ctx.decisionReason = "最高分=" + bestScore + "，选中图片=" + best + "，建议售价=" + ctx.suggestPrice;
+        }
+
+        // 落库：回写 deepay_style_chain 决策结果（可解释）
+        if (ctx.chainCode != null) {
+            deepayStyleChainMapper.update(null, new LambdaUpdateWrapper<DeepayStyleChainDO>()
+                    .eq(DeepayStyleChainDO::getChainCode, ctx.chainCode)
+                    .set(DeepayStyleChainDO::getSelectedImage, ctx.selectedImage)
+                    .set(DeepayStyleChainDO::getDecisionReason, ctx.decisionReason));
+        }
+
+        // 落库：标记选中图版本（可追溯）
+        if (ctx.chainCode != null) {
+            deepayDesignVersionMapper.update(null, new LambdaUpdateWrapper<DeepayDesignVersionDO>()
+                    .eq(DeepayDesignVersionDO::getChainCode, ctx.chainCode)
+                    .eq(DeepayDesignVersionDO::getImageUrl, best)
+                    .set(DeepayDesignVersionDO::getSelected, true));
+        }
+
+        log.info("AIDecisionAgent: action={} suggestPrice={} reason={}", ctx.action, ctx.suggestPrice, ctx.decisionReason);
         return ctx;
     }
 
+    /**
+     * 根据同品类历史均价计算建议售价。
+     *
+     * @param keyword 商品关键词（品类）
+     * @return 建议售价；无历史数据时返回 299
+     */
+    private BigDecimal computeSuggestPrice(String keyword) {
+        if (keyword != null) {
+            try {
+                BigDecimal avgPrice = deepayMetricsMapper.selectAvgPriceByCategory(keyword);
+                if (avgPrice != null && avgPrice.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal price = avgPrice.setScale(2, RoundingMode.HALF_UP);
+                    log.info("AIDecisionAgent: 品类[{}] 历史均价={}, 采用为建议售价", keyword, price);
+                    return price;
+                }
+            } catch (Exception e) {
+                log.warn("AIDecisionAgent: 查询历史均价失败，使用默认价格 {}", DEFAULT_PRICE, e);
+            }
+        }
+        log.info("AIDecisionAgent: 品类[{}] 无历史价格数据，使用默认价格 {}", keyword, DEFAULT_PRICE);
+        return DEFAULT_PRICE;
+    }
+
 }
+
 

@@ -48,6 +48,7 @@ public class Context {
 
     // ===== 打版 =====
     public String patternFile;
+    public String techPackUrl;
 
     // ===== 商品 =====
     public String title;
@@ -59,10 +60,12 @@ public class Context {
     // ===== 发布 =====
     public Boolean published;
     public String productId;
+    public String productUrl;
 
     // ===== 支付 =====
     public String paymentId;
     public Boolean paid;
+    public String orderId;
 
     // ===== 库存 =====
     public Integer stock;

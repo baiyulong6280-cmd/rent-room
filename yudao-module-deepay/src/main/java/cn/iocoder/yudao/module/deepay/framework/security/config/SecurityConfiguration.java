@@ -21,8 +21,12 @@ public class SecurityConfiguration {
 
             @Override
             public void customize(AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry registry) {
-                // 商品生成接口无需登录
-                registry.requestMatchers("/api/create-product").permitAll();
+                registry.requestMatchers(
+                        "/api/create-product",       // 轻量版（向后兼容）
+                        "/deepay/run",               // 完整生产流水线
+                        "/deepay/trend",             // 趋势查询
+                        "/deepay/callback/payment"   // 支付回调（Webhook，无 Token）
+                ).permitAll();
             }
 
         };
