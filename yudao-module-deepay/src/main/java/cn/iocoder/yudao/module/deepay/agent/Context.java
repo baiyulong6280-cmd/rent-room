@@ -110,11 +110,18 @@ public class Context {
     public Long customerId;
     /** 品类（如 外套 / 内裤 / 连衣裙），SmartQuestionAgent 填充或从画像加载 */
     public String category;
-    /** 风格（如 minimalist / streetwear / luxury） */
+    /** 主风格标签（SEXY / CASUAL / SPORT / MINIMAL / LUXURY / minimalist 等） */
     public String style;
+    /** 风格权重 Map（key=风格名, value=0~1 权重），由 MemoryAgent / PreferenceLearningAgent 维护 */
+    public java.util.Map<String, Double> styleWeights;
+    /**
+     * 组合风格 Prompt（由 StyleEngine 生成，例如"性感 + 极简"）。
+     * DesignAgent 直接消费此字段，不需要自己拼接。
+     */
+    public String stylePrompt;
     /** 目标市场：CN / EU / US / ME */
     public String market;
-    /** 价格带：LOW / MID / HIGH */
+    /** 价格带：LOW / MID / HIGH（别名 priceLevel，统一用此字段） */
     public String priceLevel;
     /** 目标年龄：YOUNG / MIDDLE / ELDER */
     public String targetAge;
@@ -122,6 +129,14 @@ public class Context {
     public String gender;
     /** 客户画像置信度（0~1），低于 0.6 时触发 SmartQuestionAgent */
     public java.math.BigDecimal confidenceScore;
+    /**
+     * 当前待回答问题（SmartQuestionAgent 决策树输出）。
+     * 非 null 表示流程"暂停等待用户输入"，Orchestrator 收到后立即返回，不继续执行后续 Agent。
+     * 调用方在下次请求中把答案填入对应字段，再次调用 Orchestrator 即可继续。
+     */
+    public String pendingQuestion;
+    /** TrendAgent 输出：结构化趋势商品列表（含 imageUrl / category / style / soldCount） */
+    public java.util.List<TrendItem> trendItems;
     /** TrendSourceAgent 输出：趋势图 URL 列表（来自内部近7天热销） */
     public java.util.List<String> trendImages;
     /** TrendSourceAgent 输出：趋势关键词 */
