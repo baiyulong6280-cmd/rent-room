@@ -23,6 +23,9 @@ public class SecurityConfiguration {
             public void customize(AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry registry) {
                 // 商品生成接口无需登录
                 registry.requestMatchers("/api/create-product").permitAll();
+                // 库存管理及订单模拟接口无需登录（MVP 阶段）
+                registry.requestMatchers("/deepay/inventory/**").permitAll();
+                registry.requestMatchers("/deepay/order/**").permitAll();
             }
 
         };
