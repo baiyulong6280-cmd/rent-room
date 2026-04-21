@@ -1,107 +1,90 @@
 package cn.iocoder.yudao.module.deepay.agent;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 全流程唯一数据载体。
+ * 全流程唯一数据载体 —— 最终生产版，一次定死，不再变更。
  *
- * <p>所有 Agent 只读 / 只写本对象的字段，相互之间不直接调用，从而保持简单与可替换性。
- * 后续接入真实 AI / 支付时只需替换对应 Agent，无需改动其他部分。</p>
- *
- * <p>完整流水线字段说明：</p>
  * <pre>
- * prompt          → TrendAgent   → trendKeyword
- * trendKeyword    → DesignAgent  → images
- * images          → JudgeAgent   → imageScores
- * imageScores     → AIDecisionAgent → selectedImage
- * selectedImage   → ChainAgent   → chainCode
- * chainCode       → PatternAgent → patternCode
- * patternCode     → ProductAgent → productRecordId
- * productRecordId → PricingAgent → price
- * price           → PublishAgent → publishStatus
- * publishStatus   → PaymentAgent → jeepayLink / swanLink
- * jeepayLink      → InventoryAgent → initialStock
- * initialStock    → AnalyticsAgent → analyticsReport
+ * keyword         → TrendAgent       → referenceImages
+ * referenceImages → DesignAgent      → designImages
+ * designImages    → JudgeAgent       → imageScores
+ * imageScores     → AIDecisionAgent  → selectedImage / needRedesign / shouldProduce / suggestPrice / action
+ * selectedImage   → ChainAgent       → chainCode
+ * chainCode       → PatternAgent     → patternFile
+ * keyword+image   → ProductAgent     → title / description
+ * suggestPrice    → PricingAgent     → price
+ * productId+price → PublishAgent     → published / productId
+ * productId       → PaymentAgent     → paymentId / paid
+ * price           → InventoryAgent   → stock / lockedStock
+ * *               → AnalyticsAgent   → soldCount / analyticsReport
  * </pre>
  */
 public class Context {
 
-    // ==================== 阶段 0：用户输入 ====================
+    // ===== 输入 =====
+    public String keyword;
 
-    /** 用户输入的一句话需求，例如"极简羊绒大衣" */
-    public String prompt;
+    // ===== 趋势 =====
+    public List<String> referenceImages;
 
-    // ==================== 阶段 1：TrendAgent（找爆款）====================
+    // ===== 设计 =====
+    public List<String> designImages;
 
-    /** 爆款趋势关键词（由 TrendAgent 从 prompt 中提取或匹配） */
-    public String trendKeyword;
+    // ===== 评分 =====
+    public Map<String, Integer> imageScores;
 
-    // ==================== 阶段 2：DesignAgent（改款）====================
-
-    /** DesignAgent 输出的候选图片 URL 列表（MVP 固定 3 张） */
-    public List<String> images;
-
-    // ==================== 阶段 3：JudgeAgent（视觉评分）====================
-
-    /** 各图视觉评分：图片列表下标 → 评分 (0-100) */
-    public Map<Integer, Integer> imageScores;
-
-    // ==================== 阶段 4：AIDecisionAgent（核心决策）====================
-
-    /** AIDecisionAgent 从 images 中选中的最高分图片 URL */
+    // ===== AI决策 =====
     public String selectedImage;
+    public Boolean needRedesign;
+    public Boolean shouldProduce;
+    public BigDecimal suggestPrice;
+    public String decisionReason;
 
-    // ==================== 阶段 5：ChainAgent（打版前置：生成链码）====================
-
-    /** ChainAgent 生成并落库的 6 位链码，商品唯一标识 */
+    // ===== 链路 =====
     public String chainCode;
 
-    // ==================== 阶段 6：PatternAgent（打版）====================
+    // ===== 打版 =====
+    public String patternFile;
 
-    /** 打版编码，格式：PAT-{chainCode}-{样式后缀} */
-    public String patternCode;
+    // ===== 商品 =====
+    public String title;
+    public String description;
 
-    // ==================== 阶段 7：ProductAgent（商品生成）====================
+    // ===== 定价 =====
+    public BigDecimal price;
 
-    /** ProductAgent 写库后的样式链记录 ID */
-    public Long productRecordId;
+    // ===== 发布 =====
+    public Boolean published;
+    public String productId;
 
-    // ==================== 阶段 8：PricingAgent（AI定价）====================
+    // ===== 支付 =====
+    public String paymentId;
+    public Boolean paid;
 
-    /** 最终定价，单位：分（例如 29900 = 299.00 元） */
-    public Integer price;
+    // ===== 库存 =====
+    public Integer stock;
+    public Integer lockedStock;
 
-    // ==================== 阶段 9：PublishAgent（上架）====================
+    // ===== 销售 =====
+    public Integer soldCount;
 
-    /** 上架状态：PUBLISHED */
-    public String publishStatus;
-
-    // ==================== 阶段 10：PaymentAgent（收款）====================
-
-    /** Jeepay 收款链接 */
-    public String jeepayLink;
-
-    /** Swan 收款链接 */
-    public String swanLink;
-
-    /** FinanceAgent（旧字段保留兼容）生成的收款 IBAN */
-    public String iban;
-
-    // ==================== 阶段 10.5：ImaAgent（ima 知识库同步，可选）====================
-
-    /** ImaAgent 创建的 ima 知识库 ID（同步失败时为 null） */
-    public String imaKbId;
-
-    // ==================== 阶段 11：InventoryAgent（库存智能）====================
-
-    /** 初始库存数量（由 InventoryAgent 设定） */
-    public Integer initialStock;
-
-    // ==================== 阶段 12：AnalyticsAgent（复盘优化）====================
-
-    /** AnalyticsAgent 生成的复盘摘要报告 */
+    // ===== 分析 =====
+    public String action;           // BOOST / STOP / REDESIGN
     public String analyticsReport;
 
+    // ===== 向后兼容（ChainOrchestrator）=====
+    /** @deprecated 使用 keyword */
+    @Deprecated public String prompt;
+    /** @deprecated 使用 designImages */
+    @Deprecated public List<String> images;
+    /** @deprecated */
+    @Deprecated public String imaKbId;
+    /** @deprecated */
+    @Deprecated public String iban;
+
 }
+
 
