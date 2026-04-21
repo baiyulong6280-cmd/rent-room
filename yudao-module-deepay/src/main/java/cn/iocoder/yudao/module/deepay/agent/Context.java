@@ -1,5 +1,7 @@
 package cn.iocoder.yudao.module.deepay.agent;
 
+import cn.iocoder.yudao.module.deepay.dal.dataobject.DeepayVariantDO;
+
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -74,6 +76,8 @@ public class Context {
 
     // ===== 销售 =====
     public Integer soldCount;
+    /** HotCloneAgent 生成的款式变体列表 */
+    public List<DeepayVariantDO> variants;
 
     // ===== 成本与利润（Phase 4 利润驱动核心） =====
     /** 生产成本（元）；ProductAgent 落库时写入，PricingAgent 据此定价 */
