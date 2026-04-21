@@ -1,31 +1,90 @@
 package cn.iocoder.yudao.module.deepay.agent;
 
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 /**
- * 全流程唯一数据载体。
+ * 全流程唯一数据载体 —— 最终生产版，一次定死，不再变更。
  *
- * <p>所有 Agent 只读 / 只写本对象的字段，相互之间不直接调用，从而保持简单与可替换性。
- * 后续接入真实 AI / 支付时只需替换对应 Agent，无需改动其他部分。</p>
+ * <pre>
+ * keyword         → TrendAgent       → referenceImages
+ * referenceImages → DesignAgent      → designImages
+ * designImages    → JudgeAgent       → imageScores
+ * imageScores     → AIDecisionAgent  → selectedImage / needRedesign / shouldProduce / suggestPrice / action
+ * selectedImage   → ChainAgent       → chainCode
+ * chainCode       → PatternAgent     → patternFile
+ * keyword+image   → ProductAgent     → title / description
+ * suggestPrice    → PricingAgent     → price
+ * productId+price → PublishAgent     → published / productId
+ * productId       → PaymentAgent     → paymentId / paid
+ * price           → InventoryAgent   → stock / lockedStock
+ * *               → AnalyticsAgent   → soldCount / analyticsReport
+ * </pre>
  */
 public class Context {
 
-    /** 用户输入的一句话需求，例如"极简羊绒大衣" */
-    public String prompt;
+    // ===== 输入 =====
+    public String keyword;
 
-    /** DesignAgent 输出的候选图片 URL 列表（MVP 固定 3 张） */
-    public List<String> images;
+    // ===== 趋势 =====
+    public List<String> referenceImages;
 
-    /** DecisionAgent 从 images 中选中的图片 URL */
+    // ===== 设计 =====
+    public List<String> designImages;
+
+    // ===== 评分 =====
+    public Map<String, Integer> imageScores;
+
+    // ===== AI决策 =====
     public String selectedImage;
+    public Boolean needRedesign;
+    public Boolean shouldProduce;
+    public BigDecimal suggestPrice;
+    public String decisionReason;
 
-    /** ChainAgent 生成并落库的 6 位链码，商品唯一标识 */
+    // ===== 链路 =====
     public String chainCode;
 
-    /** FinanceAgent 生成的收款 IBAN（MVP 为 mock 字符串） */
-    public String iban;
+    // ===== 打版 =====
+    public String patternFile;
 
-    /** ImaAgent 创建的 ima 知识库 ID（同步失败时为 null） */
-    public String imaKbId;
+    // ===== 商品 =====
+    public String title;
+    public String description;
+
+    // ===== 定价 =====
+    public BigDecimal price;
+
+    // ===== 发布 =====
+    public Boolean published;
+    public String productId;
+
+    // ===== 支付 =====
+    public String paymentId;
+    public Boolean paid;
+
+    // ===== 库存 =====
+    public Integer stock;
+    public Integer lockedStock;
+
+    // ===== 销售 =====
+    public Integer soldCount;
+
+    // ===== 分析 =====
+    public String action;           // BOOST / STOP / REDESIGN
+    public String analyticsReport;
+
+    // ===== 向后兼容（ChainOrchestrator）=====
+    /** @deprecated 使用 keyword */
+    @Deprecated public String prompt;
+    /** @deprecated 使用 designImages */
+    @Deprecated public List<String> images;
+    /** @deprecated */
+    @Deprecated public String imaKbId;
+    /** @deprecated */
+    @Deprecated public String iban;
 
 }
+
+
