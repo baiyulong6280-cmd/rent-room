@@ -25,4 +25,7 @@ public class Context {
     /** FinanceAgent 生成的收款 IBAN（MVP 为 mock 字符串） */
     public String iban;
 
+    /** ImaAgent 创建的 ima 知识库 ID（同步失败时为 null） */
+    public String imaKbId;
+
 }

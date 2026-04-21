@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS `deepay_style_chain`
     `image_url`  VARCHAR(512) NOT NULL DEFAULT '' COMMENT '最终选中的设计图片URL',
     `status`     VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '状态：CREATED',
     `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `ima_kb_id`  VARCHAR(128)          DEFAULT NULL COMMENT 'ima 知识库 ID，同步失败时为 NULL',
     PRIMARY KEY (`id`) USING BTREE,
     UNIQUE KEY `uk_chain_code` (`chain_code`) COMMENT '链码唯一索引'
 ) ENGINE = InnoDB
