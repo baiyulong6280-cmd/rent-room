@@ -66,6 +66,7 @@ public class Context {
     public String paymentId;
     public Boolean paid;
     public String orderId;
+    public Long userId;
 
     // ===== 库存 =====
     public Integer stock;
@@ -74,9 +75,72 @@ public class Context {
     // ===== 销售 =====
     public Integer soldCount;
 
+    // ===== 成本与利润（Phase 4 利润驱动核心） =====
+    /** 生产成本（元）；ProductAgent 落库时写入，PricingAgent 据此定价 */
+    public java.math.BigDecimal costPrice;
+    /** 单笔利润 = price - costPrice，Payment 回调时计算 */
+    public java.math.BigDecimal profit;
+    /** 投资回报率 = profit / costPrice，Payment 回调 & Scheduler 决策依据 */
+    public java.math.BigDecimal roi;
+
+    // ===== Phase 5 B2B 批发 =====
+    /** 客户 ID（批发场景） */
+    public Long clientId;
+    /** 客户等级 A/B/C，由 ClientAgent 注入，影响定价与供货优先级 */
+    public String clientLevel;
+    /** 批发数量（下单件数，影响阶梯定价） */
+    public Integer wholesaleQty;
+    /** 批发折扣后的单价 */
+    public java.math.BigDecimal wholesalePrice;
+    /** 本单批发总利润 = (wholesalePrice - costPrice) × wholesaleQty */
+    public java.math.BigDecimal wholesaleProfit;
+    /** DemandAgent 预测销量（未来 7 天） */
+    public Integer predictedDemand;
+    /** DemandAgent 预测置信度（0~1） */
+    public java.math.BigDecimal demandConfidence;
+    /** ProductionPlanner 建议生产量 */
+    public Integer suggestedProductionQty;
+
     // ===== 分析 =====
     public String action;           // BOOST / STOP / REDESIGN
     public String analyticsReport;
+
+    // ===== Phase 6 客户画像（记忆 + 个性化）=====
+    /** 客户 ID（B2B 客户或用户 ID，关联 deepay_customer_profile） */
+    public Long customerId;
+    /** 品类（如 外套 / 内裤 / 连衣裙），SmartQuestionAgent 填充或从画像加载 */
+    public String category;
+    /** 主风格标签（SEXY / CASUAL / SPORT / MINIMAL / LUXURY / minimalist 等） */
+    public String style;
+    /** 风格权重 Map（key=风格名, value=0~1 权重），由 MemoryAgent / PreferenceLearningAgent 维护 */
+    public java.util.Map<String, Double> styleWeights;
+    /**
+     * 组合风格 Prompt（由 StyleEngine 生成，例如"性感 + 极简"）。
+     * DesignAgent 直接消费此字段，不需要自己拼接。
+     */
+    public String stylePrompt;
+    /** 目标市场：CN / EU / US / ME */
+    public String market;
+    /** 价格带：LOW / MID / HIGH（别名 priceLevel，统一用此字段） */
+    public String priceLevel;
+    /** 目标年龄：YOUNG / MIDDLE / ELDER */
+    public String targetAge;
+    /** 目标性别：MALE / FEMALE / UNISEX */
+    public String gender;
+    /** 客户画像置信度（0~1），低于 0.6 时触发 SmartQuestionAgent */
+    public java.math.BigDecimal confidenceScore;
+    /**
+     * 当前待回答问题（SmartQuestionAgent 决策树输出）。
+     * 非 null 表示流程"暂停等待用户输入"，Orchestrator 收到后立即返回，不继续执行后续 Agent。
+     * 调用方在下次请求中把答案填入对应字段，再次调用 Orchestrator 即可继续。
+     */
+    public String pendingQuestion;
+    /** TrendAgent 输出：结构化趋势商品列表（含 imageUrl / category / style / soldCount） */
+    public java.util.List<TrendItem> trendItems;
+    /** TrendSourceAgent 输出：趋势图 URL 列表（来自内部近7天热销） */
+    public java.util.List<String> trendImages;
+    /** TrendSourceAgent 输出：趋势关键词 */
+    public java.util.List<String> trendKeywords;
 
     // ===== 向后兼容（ChainOrchestrator）=====
     /** @deprecated 使用 keyword */

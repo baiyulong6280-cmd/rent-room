@@ -30,6 +30,30 @@ public class DeepayMetricsDO {
     /** 分类（来自 keyword） */
     private String category;
 
+    /** 商品详情页浏览次数 */
+    private Integer viewCount;
+
+    /** 成功支付次数（与 soldCount 对比可得转化率） */
+    private Integer payCount;
+
+    /** 转化率（pay_count / view_count），取值 0.00~1.00 */
+    private BigDecimal conversionRate;
+
+    /** 生产成本快照 */
+    private BigDecimal costPrice;
+
+    /** 单笔利润（price - cost_price） */
+    private BigDecimal profit;
+
+    /** 投资回报率（profit / cost_price） */
+    private BigDecimal roi;
+
+    /**
+     * 风格标签（SEXY / CASUAL / SPORT / MINIMAL / LUXURY）。
+     * 由 AnalyticsAgent 在落库时从 Context.style 写入，供 TrendAgent 风格加权排序使用。
+     */
+    private String style;
+
     private LocalDateTime createdAt;
 
 }

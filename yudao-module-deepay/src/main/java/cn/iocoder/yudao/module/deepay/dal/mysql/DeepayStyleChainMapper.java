@@ -25,6 +25,15 @@ public interface DeepayStyleChainMapper extends BaseMapperX<DeepayStyleChainDO> 
     }
 
     /**
+     * 持久化 Context 决策快照（JSON），用于 AI 决策回溯审计。
+     */
+    default void updateContextSnapshot(String chainCode, String snapshotJson) {
+        update(null, new LambdaUpdateWrapper<DeepayStyleChainDO>()
+                .eq(DeepayStyleChainDO::getChainCode, chainCode)
+                .set(DeepayStyleChainDO::getContextSnapshot, snapshotJson));
+    }
+
+    /**
      * 查询近 7 天销量最高的款式图片（用于 TrendAgent 内部热销兜底）。
      * 通过 deepay_metrics 关联 deepay_style_chain，按 sold_count 降序。
      */

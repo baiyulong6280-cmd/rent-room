@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.deepay.service;
 
+import cn.iocoder.yudao.module.deepay.service.CircuitBreakerService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
+import javax.annotation.Resource;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
@@ -59,6 +61,9 @@ public class FluxServiceImpl implements FluxService {
 
     private final RestTemplate restTemplate;
 
+    @Resource
+    private CircuitBreakerService circuitBreakerService;
+
     public FluxServiceImpl(RestTemplateBuilder builder) {
         this.restTemplate = builder
                 .setConnectTimeout(Duration.ofSeconds(10))
@@ -75,12 +80,15 @@ public class FluxServiceImpl implements FluxService {
             return DEFAULT_IMAGES;
         }
 
-        try {
-            return callFluxApi(fullPrompt);
-        } catch (Exception e) {
-            log.warn("[FluxService] AI 出图失败，已降级为保底图片。prompt={}", fullPrompt, e);
-            return DEFAULT_IMAGES;
-        }
+        // 通过熔断器调用 FLUX API：失败率 > 50% 自动熔断，30s 后自动恢复探测
+        return circuitBreakerService.execute(
+                "FluxService",
+                () -> callFluxApi(fullPrompt),
+                () -> {
+                    log.warn("[FluxService] 熔断器已断开，降级为保底图片 prompt={}", fullPrompt);
+                    return DEFAULT_IMAGES;
+                }
+        );
     }
 
     /**
