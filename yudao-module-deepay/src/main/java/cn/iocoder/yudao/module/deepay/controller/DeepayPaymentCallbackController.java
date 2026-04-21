@@ -113,17 +113,35 @@ public class DeepayPaymentCallbackController {
         Context ctx = new Context();
         ctx.chainCode = chainCode;
         if (product != null) {
-            ctx.keyword    = product.getTitle();
-            ctx.price      = product.getPrice();
-            ctx.soldCount  = product.getSoldCount();
-            ctx.stock      = product.getStock();
-            // 虚拟打分：soldCount > 5 → 高分 BOOST；否则中分
+            ctx.keyword   = product.getTitle();
+            ctx.price     = product.getPrice();
+            ctx.soldCount = product.getSoldCount();
+            ctx.stock     = product.getStock();
+
+            // 虚拟打分：用历史均销量动态计算阈值；无历史时 fallback 到静态值 5
+            int sold = product.getSoldCount() != null ? product.getSoldCount() : 0;
+            int threshold = resolveReviewThreshold(product.getTitle());
             String key = chainCode + "-recheck";
             ctx.designImages = Collections.singletonList(key);
-            ctx.imageScores  = Collections.singletonMap(key,
-                    product.getSoldCount() != null && product.getSoldCount() > 5 ? 90 : 70);
+            ctx.imageScores  = Collections.singletonMap(key, sold > threshold ? 90 : 70);
         }
         return ctx;
+    }
+
+    /**
+     * 用历史均销量作为二次决策高分/低分的切分阈值。
+     * 无历史数据时 fallback 到 5。
+     */
+    private int resolveReviewThreshold(String keyword) {
+        try {
+            Double avg = deepayMetricsMapper.selectAvgSoldCountByCategory(keyword);
+            if (avg != null && avg > 0) {
+                return (int) Math.round(avg);
+            }
+        } catch (Exception e) {
+            log.warn("buildReviewContext: 查询历史均销量失败，使用默认阈值 5", e);
+        }
+        return 5;
     }
 
     // ---- Request VO ----
