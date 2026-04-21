@@ -9,36 +9,29 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * 商品表 deepay_product
+ * 订单表 deepay_order
  */
-@TableName("deepay_product")
+@TableName("deepay_order")
 @Data
-public class DeepayProductDO {
+public class DeepayOrderDO {
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    /** 全局唯一支付 ID */
+    private String paymentId;
+
     /** 关联链码 */
     private String chainCode;
 
-    /** 商品标题 */
-    private String title;
-
-    /** 商品描述 */
-    private String description;
-
-    /** 售价 */
-    private BigDecimal price;
-
-    /** 状态：SELLING / STOPPED / REDESIGNING */
+    /** 订单状态：PENDING / PAID / CANCELLED */
     private String status;
 
-    /** 销量 */
-    private Integer soldCount;
-
-    /** 可用库存 */
-    private Integer stock;
+    /** 实收金额 */
+    private BigDecimal amount;
 
     private LocalDateTime createdAt;
+
+    private LocalDateTime paidAt;
 
 }
