@@ -1,34 +1,29 @@
 package cn.iocoder.yudao.module.deepay.agent;
 
-import java.util.Arrays;
+import cn.iocoder.yudao.module.deepay.service.FluxService;
+import org.springframework.stereotype.Component;
+
+import javax.annotation.Resource;
 
 /**
- * 设计生成 Agent（MVP 使用模拟数据）。
+ * 设计生成 Agent。
  *
- * <p>职责：根据用户的 prompt，调用 AI 生图服务（MVP 阶段用固定 mock URL），
+ * <p>职责：根据用户的 prompt，通过 {@link FluxService} 调用 AI 生图服务，
  * 将候选图片列表写入 {@link Context#images}。</p>
  *
- * <p>后续接入真实 AI（如 FLUX）时，只需替换本类实现，无需改动 Orchestrator 或其他 Agent。</p>
+ * <p>Agent 本身不含任何 HTTP 细节，所有 AI 交互均委托给 Service 层，
+ * 替换底层生图能力时无需改动本类或 Orchestrator。</p>
  */
+@Component
 public class DesignAgent implements Agent {
+
+    @Resource
+    private FluxService fluxService;
 
     @Override
     public Context run(Context ctx) {
-        // MVP：模拟 AI 返回 3 张设计候选图片 URL
-        ctx.images = Arrays.asList(
-                "https://deepay-assets.example.com/designs/" + sanitize(ctx.prompt) + "/v1.jpg",
-                "https://deepay-assets.example.com/designs/" + sanitize(ctx.prompt) + "/v2.jpg",
-                "https://deepay-assets.example.com/designs/" + sanitize(ctx.prompt) + "/v3.jpg"
-        );
+        ctx.images = fluxService.generateImages(ctx.prompt);
         return ctx;
-    }
-
-    /** 将 prompt 转成 URL 安全的简单字符串（仅保留字母数字与下划线）。 */
-    private String sanitize(String prompt) {
-        if (prompt == null || prompt.isEmpty()) {
-            return "default";
-        }
-        return prompt.replaceAll("[^a-zA-Z0-9_\\-]", "_");
     }
 
 }

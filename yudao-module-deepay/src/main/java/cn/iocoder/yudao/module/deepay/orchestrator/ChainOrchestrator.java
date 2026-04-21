@@ -19,6 +19,10 @@ import javax.annotation.Resource;
 @Service
 public class ChainOrchestrator {
 
+    /** DesignAgent 依赖 FluxService，必须由 Spring 管理 */
+    @Resource
+    private DesignAgent designAgent;
+
     /** ChainAgent 依赖 Mapper，必须由 Spring 管理 */
     @Resource
     private ChainAgent chainAgent;
@@ -33,8 +37,8 @@ public class ChainOrchestrator {
         Context ctx = new Context();
         ctx.prompt = prompt;
 
-        // 1. 设计生成（mock AI 出图）
-        ctx = new DesignAgent().run(ctx);
+        // 1. 设计生成（AI 出图，失败时自动降级为保底图片）
+        ctx = designAgent.run(ctx);
         // 2. 决策选图（MVP 选第一张）
         ctx = new DecisionAgent().run(ctx);
         // 3. 生成链码并落库
