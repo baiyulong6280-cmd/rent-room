@@ -8,10 +8,16 @@ import javax.annotation.Resource;
 import java.time.Duration;
 
 /**
- * 限流服务（STEP 23）。
+ * 限流服务（STEP 23 硬化版）。
  *
- * <p>使用 Redis INCR + EXPIRE 实现滑动窗口限流：
- * 同一用户 1 分钟内最多允许 {@value #MAX_PER_MINUTE} 次出图请求。</p>
+ * <p>使用 {@code SET NX EX}（setIfAbsent）+ INCR 双步骤，防止并发竞态穿透：
+ * <ol>
+ *   <li>首次请求：{@code SET key "1" NX EX 60} —— 原子创建窗口并直接放行</li>
+ *   <li>后续请求：INCR，检查是否超过 {@value #MAX_PER_MINUTE}</li>
+ * </ol>
+ * 纯 INCR 方案在并发时可能多个线程同时拿到 count==1 但都跳过 expire，
+ * 导致 key 永不过期；setIfAbsent 消除了这个竞态窗口。
+ * </p>
  *
  * <p>key 格式：{@code rate:design:{userId}}</p>
  */
@@ -28,20 +34,20 @@ public class DeepayRateLimitService {
     /**
      * 判断本次请求是否被允许。
      *
-     * <p>首次 INCR 时（count == 1）设置 1 分钟过期，后续在同一时间窗口内计数。
-     * 超过上限时返回 false，调用方应拒绝请求。</p>
-     *
-     * @param userId 用户 ID（允许为 "anonymous"）
-     * @return true 表示允许，false 表示超限
+     * @param userId 用户 ID（null 时用 "anonymous"）
+     * @return true 允许；false 超出限流
      */
     public boolean allow(String userId) {
         String key = KEY_PREFIX + (userId != null ? userId : "anonymous");
         try {
-            Long count = stringRedisTemplate.opsForValue().increment(key);
-            if (count != null && count == 1L) {
-                // 首次计数，设置窗口过期时间
-                stringRedisTemplate.expire(key, Duration.ofMinutes(1));
+            // ① 首次请求：原子 SET key "1" NX EX 60s — 成功则是窗口第一次，直接放行
+            Boolean isFirst = stringRedisTemplate.opsForValue()
+                    .setIfAbsent(key, "1", Duration.ofMinutes(1));
+            if (Boolean.TRUE.equals(isFirst)) {
+                return true;
             }
+            // ② 非首次：INCR 计数（key 必然已有过期时间，不存在竞态）
+            Long count = stringRedisTemplate.opsForValue().increment(key);
             boolean allowed = count != null && count <= MAX_PER_MINUTE;
             if (!allowed) {
                 log.warn("[RateLimit] 超出限流 userId={} count={} max={}", userId, count, MAX_PER_MINUTE);

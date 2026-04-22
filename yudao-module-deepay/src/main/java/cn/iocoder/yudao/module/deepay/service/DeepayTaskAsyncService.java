@@ -37,21 +37,22 @@ public class DeepayTaskAsyncService {
     /**
      * 异步执行完整出图链路。
      *
-     * <p>执行顺序：
+     * <p>严格执行顺序（任一步失败均跳入 catch → failed）：
      * <ol>
-     *   <li>检查 Redis 缓存（STEP 22），命中直接写 success 并返回</li>
-     *   <li>运行 ProductionOrchestrator</li>
-     *   <li>将 safeImages 上传 OSS，得到永久 URL（STEP 24）</li>
-     *   <li>写缓存（STEP 22）</li>
-     *   <li>更新 design_image view_count（每张图曝光计数）</li>
-     *   <li>更新 task 为 success + result</li>
+     *   <li>标记 running</li>
+     *   <li>缓存检查（STEP 22）：命中则直接返回，不走 AI</li>
+     *   <li>运行 ProductionOrchestrator（AI 链路）</li>
+     *   <li>OSS 持久化（STEP 24）：AI 临时 URL → 永久 URL，含 Redis MD5 去重</li>
+     *   <li>写缓存（STEP 22）：空列表不写入，防空缓存</li>
+     *   <li>更新 design_image view_count（STEP 28）</li>
+     *   <li>标记 success</li>
      * </ol>
-     * 任何异常均捕获，标记 task 为 failed 并记录 errorMsg。</p>
+     * </p>
      *
      * @param taskId 任务 ID
-     * @param ctx    已填充 category/style/market/priceLevel 等字段的 Context
+     * @param ctx    每次请求创建的全新 Context（避免多线程污染）
      */
-    @Async
+    @Async("taskExecutor")
     public void runTask(Long taskId, Context ctx) {
         DeepayTaskDO task = taskMapper.selectById(taskId);
         if (task == null) {

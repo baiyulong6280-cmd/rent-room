@@ -10,6 +10,7 @@ import org.springframework.util.StringUtils;
 
 import javax.annotation.Resource;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -28,6 +29,8 @@ public class DeepayDesignCacheService {
 
     private static final String KEY_PREFIX = "design:";
     private static final long   TTL_HOURS  = 1L;
+    /** 随机抖动（0~10 分钟），防止大量 key 同时过期引发 Redis 雪崩 */
+    private static final Random RANDOM     = new Random();
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -65,14 +68,21 @@ public class DeepayDesignCacheService {
     }
 
     /**
-     * 将 safeImages 写入缓存，TTL = 1 小时。
+     * 将 safeImages 写入缓存。
+     *
+     * <p>防空缓存：空列表不写入，避免 AI 失败时缓存空结果导致后续请求永远返回空。
+     * 防雪崩：TTL = 1小时 + 随机 0~10 分钟抖动，避免大量 key 同时过期。</p>
      */
     public void set(String key, List<String> images) {
-        if (images == null || images.isEmpty()) return;
+        if (images == null || images.isEmpty()) {
+            log.debug("[DesignCache] 空列表不写入缓存，防止空缓存 key={}", key);
+            return;
+        }
         try {
             String json = MAPPER.writeValueAsString(images);
-            stringRedisTemplate.opsForValue().set(key, json, TTL_HOURS, TimeUnit.HOURS);
-            log.info("[DesignCache] 已写入缓存 key={} size={}", key, images.size());
+            long ttlMinutes = TTL_HOURS * 60 + RANDOM.nextInt(10);
+            stringRedisTemplate.opsForValue().set(key, json, ttlMinutes, TimeUnit.MINUTES);
+            log.info("[DesignCache] 已写入缓存 key={} size={} ttlMin={}", key, images.size(), ttlMinutes);
         } catch (Exception e) {
             log.warn("[DesignCache] 写入缓存失败 key={}", key, e);
         }

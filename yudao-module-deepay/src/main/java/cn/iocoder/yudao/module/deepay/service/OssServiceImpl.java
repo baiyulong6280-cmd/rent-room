@@ -2,15 +2,20 @@ package cn.iocoder.yudao.module.deepay.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.util.DigestUtils;
 import org.springframework.util.StringUtils;
 
+import javax.annotation.Resource;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -43,9 +48,14 @@ public class OssServiceImpl implements OssService {
 
     private static final int CONNECT_TIMEOUT_MS = 5_000;
     private static final int READ_TIMEOUT_MS    = 15_000;
+    /** Redis key 前缀，存储已上传图片的永久 URL，防止重复下载 */
+    private static final String OSS_DEDUP_PREFIX = "img:";
 
     @Value("${deepay.oss.bucket-url:}")
     private String bucketUrl;
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
 
     @Override
     public String persist(String imageUrl) {
@@ -55,7 +65,17 @@ public class OssServiceImpl implements OssService {
             return imageUrl;
         }
         try {
-            return uploadToOss(imageUrl);
+            // Redis 去重：相同 URL 只上传一次（key = img:{md5}，TTL 24h）
+            String dedupKey = OSS_DEDUP_PREFIX + DigestUtils.md5DigestAsHex(imageUrl.getBytes());
+            String existing = stringRedisTemplate.opsForValue().get(dedupKey);
+            if (StringUtils.hasText(existing)) {
+                log.debug("[OssService] OSS 去重命中 url={} -> {}", imageUrl, existing);
+                return existing;
+            }
+            String permanentUrl = uploadToOss(imageUrl);
+            // 写入去重缓存，TTL 24 小时
+            stringRedisTemplate.opsForValue().set(dedupKey, permanentUrl, Duration.ofHours(24));
+            return permanentUrl;
         } catch (Exception e) {
             log.warn("[OssService] 上传失败，降级返回原始 URL url={}", imageUrl, e);
             return imageUrl;
