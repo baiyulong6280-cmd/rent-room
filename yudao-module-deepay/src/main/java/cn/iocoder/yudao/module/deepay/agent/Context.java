@@ -189,6 +189,12 @@ public class Context {
     /** 估算生产成本，由 CostEstimateAgent 填充 */
     public java.math.BigDecimal cost;
 
+    // ===== Phase 9 变体与安全图 =====
+    /** DesignVariantAgent 输出：所有变体图片 URL 列表（5种颜色×面料，共10张） */
+    public List<String> variantImages;
+    /** RiskControlAgent 输出：过滤高风险图后的安全图片列表 */
+    public List<String> safeImages;
+
     // ===== 向后兼容（ChainOrchestrator）=====
     /** @deprecated 使用 keyword */
     @Deprecated public String prompt;

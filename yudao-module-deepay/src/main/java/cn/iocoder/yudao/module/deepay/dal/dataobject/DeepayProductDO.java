@@ -52,6 +52,9 @@ public class DeepayProductDO {
      */
     private String category;
 
+    /** 风格标签（SEXY / CASUAL / SPORT / MINIMAL / LUXURY），由 ProductAgent 落库时写入。 */
+    private String style;
+
     /**
      * 主图（便捷字段，等价于 cdnImageUrl）。
      * TrendAgent 通过 {@link #getMainImage()} 读取，避免字段名不一致问题。

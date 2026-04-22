@@ -27,6 +27,9 @@ public class CostEstimateAgent implements Agent {
 
     /** 建议售价相对成本的加价倍数（2.5 倍） */
     private static final BigDecimal PRICE_MARKUP_MULTIPLIER = new BigDecimal("2.5");
+
+    @Override
+    public Context run(Context ctx) {
         try {
             int baseCost = baseCostFromFabric(ctx.fabric);
             double multiplier = detailMultiplier(ctx.designDetails);

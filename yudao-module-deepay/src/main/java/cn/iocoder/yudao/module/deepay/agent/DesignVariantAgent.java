@@ -13,10 +13,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * DesignVariantAgent — 基于 Top 图片生成 5 个颜色 / 面料变体（Phase 8）。
+ * DesignVariantAgent — 一款 → 多爆款变体（Phase 8/9 STEP 13）。
  *
- * <p>从 {@link Context#topImages}（或 {@link Context#designImages}）取第一张图作为基准，
- * 为每个颜色 × 面料组合调用 FluxService 生成 1 张变体图，并将结果写入 {@link Context#variants}。</p>
+ * <p>基于 {@link Context#finalPrompt} 生成5类变体（颜色/面料/风格），
+ * 每类2张图，共10张写入 {@link Context#variantImages}；
+ * 同时将结构化变体信息写入 {@link Context#variants}。</p>
  */
 @Component
 public class DesignVariantAgent implements Agent {
@@ -25,6 +26,15 @@ public class DesignVariantAgent implements Agent {
 
     private static final String[] COLORS  = {"黑色", "白色", "灰色", "米白", "卡其"};
     private static final String[] FABRICS = {"棉",   "牛仔", "针织", "羊毛", "丝绸"};
+
+    // STEP 13 variant prompts
+    private static final String[] VARIANT_SUFFIXES = {
+        ", different color variations",
+        ", premium fabric version",
+        ", streetwear version",
+        ", minimalist clean version",
+        ", luxury high-end version"
+    };
 
     @Resource
     private FluxService fluxService;
@@ -38,15 +48,22 @@ public class DesignVariantAgent implements Agent {
                 return ctx;
             }
 
-            List<DeepayVariantDO> variants = new ArrayList<>();
             String chainCode = ctx.chainCode != null ? ctx.chainCode : "UNKNOWN";
+            List<String> variantImageUrls = new ArrayList<>();
+            List<DeepayVariantDO> variants = new ArrayList<>();
 
             for (int i = 0; i < 5; i++) {
                 String color  = COLORS[i];
                 String fabric = FABRICS[i];
+                // Use STEP 13 prompt suffix + color/fabric detail
+                String variantPrompt = basePrompt + VARIANT_SUFFIXES[i] + ", " + color + ", " + fabric + " fabric";
 
-                String variantPrompt = basePrompt + ", " + color + ", " + fabric + " fabric variant";
-                List<String> generated = fluxService.generateImages(variantPrompt, 1);
+                // Generate 2 images per variant (STEP 13: 5 variants × 2 = 10 images)
+                List<String> generated = fluxService.generateImages(variantPrompt, 2);
+                if (generated != null) {
+                    variantImageUrls.addAll(generated);
+                }
+
                 String imageUrl = (generated != null && !generated.isEmpty()) ? generated.get(0) : "";
 
                 DeepayVariantDO variant = new DeepayVariantDO();
@@ -59,17 +76,17 @@ public class DesignVariantAgent implements Agent {
                 variant.setImageUrl(imageUrl);
                 variant.setDesignPrompt(variantPrompt);
                 variant.setCreatedAt(LocalDateTime.now());
-
                 variants.add(variant);
-                log.info("[DesignVariantAgent] 变体[{}] color={} fabric={} url={}", i + 1, color, fabric, imageUrl);
+
+                log.info("[DesignVariantAgent] 变体[{}] color={} fabric={} images={}", i + 1, color, fabric, generated != null ? generated.size() : 0);
             }
 
+            ctx.variantImages = variantImageUrls;
             ctx.variants = variants;
-            log.info("[DesignVariantAgent] DONE 生成 {} 个变体 chainCode={}", variants.size(), chainCode);
+            log.info("[DesignVariantAgent] DONE variantImages={} variants={} chainCode={}", variantImageUrls.size(), variants.size(), chainCode);
         } catch (Exception e) {
             log.warn("[DesignVariantAgent] 变体生成异常，跳过", e);
         }
         return ctx;
     }
-
 }
