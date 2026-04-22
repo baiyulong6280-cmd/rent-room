@@ -12,6 +12,7 @@ import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayProductMapper;
 import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayTaskMapper;
 import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayUserQuotaMapper;
 import cn.iocoder.yudao.module.deepay.service.CurrencyService;
+import cn.iocoder.yudao.module.deepay.service.DeepayQuotaService;
 import cn.iocoder.yudao.module.deepay.service.DeepayRateLimitService;
 import cn.iocoder.yudao.module.deepay.service.DeepayTaskAsyncService;
 import cn.iocoder.yudao.module.deepay.service.UserProfileService;
@@ -60,6 +61,7 @@ public class DeepayDesignController {
     @Resource private DeepayTaskMapper        taskMapper;
     @Resource private DeepayTaskAsyncService  asyncService;
     @Resource private DeepayRateLimitService  rateLimitService;
+    @Resource private DeepayQuotaService      quotaService;
     @Resource private DeepayUserQuotaMapper   quotaMapper;
     @Resource private FeedbackAgent           feedbackAgent;
     @Resource private UserProfileService      userProfileService;
@@ -87,15 +89,12 @@ public class DeepayDesignController {
             return success(r);
         }
 
-        // ② 配额检查（STEP 26）：初始化并扣减
+        // ② 配额检查（STEP 26）：Upsell 而非硬拦截
         if (req.getUserId() != null) {
-            quotaMapper.initIfAbsent(userId);
-            int consumed = quotaMapper.consumeQuota(userId);
-            if (consumed == 0) {
-                Map<String, Object> r = new LinkedHashMap<>();
-                r.put("error", "出图次数已用完，请充值后继续");
-                r.put("code",  402);
-                return success(r);
+            DeepayQuotaService.QuotaCheckResult quotaResult = quotaService.checkAndConsume(userId);
+            if (quotaResult != null && quotaResult.exceeded) {
+                // 超限：返回 Upsell 信息，前端展示购买弹窗
+                return success(quotaResult.toMap());
             }
         }
 
@@ -127,7 +126,9 @@ public class DeepayDesignController {
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("taskId",  task.getId());
         resp.put("status",  "pending");
-        resp.put("message", "任务已创建，请通过 /api/design/result/{taskId} 轮询结果");
+        resp.put("message", "将为你生成当前热门爆款款式，请稍候…");
+        // 返回剩余配额，前端可展示"今日剩余 N 次"
+        resp.put("quota",   quotaService.getQuotaInfo(userId));
         log.info("[generate] 任务已创建 taskId={} userId={}", task.getId(), userId);
         return success(resp);
     }
