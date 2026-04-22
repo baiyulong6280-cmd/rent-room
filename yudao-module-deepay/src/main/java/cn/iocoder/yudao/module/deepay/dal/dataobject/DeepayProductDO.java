@@ -21,6 +21,12 @@ public class DeepayProductDO {
     /** 关联链码 */
     private String chainCode;
 
+    /**
+     * 关联的设计图 ID（deepay_design_image.id）。
+     * 绑定设计来源，保证学习系统链路不断。
+     */
+    private Long designId;
+
     /** 商品标题 */
     private String title;
 

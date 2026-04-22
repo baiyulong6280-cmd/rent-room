@@ -37,6 +37,15 @@ public class DeepayDesignImageDO {
     /** 客户匹配分 */
     private Double matchScore;
 
+    /** 被展示次数（每次出现在 generate 结果中 +1），用于计算点击率 */
+    private Integer viewCount;
+
+    /** 用户点击/选中次数，用于计算点击率 = clickCount / viewCount */
+    private Integer clickCount;
+
+    /** 该图片关联的成交订单数，用于计算成交率 = orderCount / clickCount */
+    private Integer orderCount;
+
     private LocalDateTime createdAt;
 
 }
