@@ -89,6 +89,19 @@ public class ProductionOrchestrator {
     @Resource private ClientAgent             clientAgent;
     @Resource private ProductionPlanner       productionPlanner;
 
+    // ---- Phase 8 设计深化流水线 ----
+    @Resource private StyleConsistencyAgent   styleConsistencyAgent;
+    @Resource private DesignConfirmAgent      designConfirmAgent;
+    @Resource private DesignSplitAgent        designSplitAgent;
+    @Resource private RiskControlAgent        riskControlAgent;
+    @Resource private DesignGenAgent          designGenAgent;
+    @Resource private DesignVariantAgent      designVariantAgent;
+    @Resource private PatternPrepareAgent     patternPrepareAgent;
+    @Resource private CostEstimateAgent       costEstimateAgent;
+    @Resource private ImageScoringAgent       imageScoringAgent;
+    @Resource private FeedbackAgent           feedbackAgent;
+    @Resource private SelectionFeedAgent      selectionFeedAgent;
+
     // ---- 基础服务 ----
     @Resource private ContextSnapshotService  snapshotService;
     @Resource private DeepayAuditService      auditService;
@@ -124,6 +137,7 @@ public class ProductionOrchestrator {
         }
 
         // ---- 4. 趋势参考图（强品类过滤 WHERE p.category=?）----
+        ctx = selectionFeedAgent.run(ctx);
         ctx = trendAgent.run(ctx);
         ctx = syncReferenceImagesToCdn(ctx);
 
@@ -150,6 +164,23 @@ public class ProductionOrchestrator {
             return ctx;
         }
 
+        // ---- Phase 8: 设计深化流水线 ----
+        ctx = designConfirmAgent.run(ctx);
+        if (StringUtils.hasText(ctx.pendingQuestion)) {
+            log.info("[Orchestrator] ⏸ Phase8 等待品类确认 pendingQuestion={}", ctx.pendingQuestion);
+            return ctx;
+        }
+        ctx = styleConsistencyAgent.run(ctx);
+        ctx = designSplitAgent.run(ctx);
+        ctx = riskControlAgent.run(ctx);
+        ctx = designGenAgent.run(ctx);
+        ctx = imageScoringAgent.run(ctx);
+        ctx = feedbackAgent.run(ctx);
+        ctx = designVariantAgent.run(ctx);
+        ctx = patternPrepareAgent.run(ctx);
+        ctx = costEstimateAgent.run(ctx);
+        snapshotService.save(ctx, "Phase8[Design]");
+
         // ---- 9. 打版 ----
         try {
             ctx = patternAgent.run(ctx);
@@ -161,6 +192,7 @@ public class ProductionOrchestrator {
 
         // ---- 10~12. 商品 → 定价 → 上架 ----
         ctx = productAgent.run(ctx);
+        // CostEstimateAgent may have set costPrice and price; PricingAgent can refine
         ctx = pricingAgent.run(ctx);
         snapshotService.save(ctx, "PricingAgent");
         auditService.log(ctx.chainCode, "REPRICE",
