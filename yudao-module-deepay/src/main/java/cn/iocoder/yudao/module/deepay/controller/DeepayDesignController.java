@@ -79,12 +79,16 @@ public class DeepayDesignController {
 
         orchestrator.run(ctx);
 
-        // Collect ≥6 images: designImages + variantImages (safeImages preferred)
-        Set<String> seen = new LinkedHashSet<>();
-        if (ctx.safeImages != null) seen.addAll(ctx.safeImages);
-        if (ctx.designImages != null) seen.addAll(ctx.designImages);
-        if (ctx.variantImages != null) seen.addAll(ctx.variantImages);
-        List<String> images = new ArrayList<>(seen);
+        // Return only risk-filtered safeImages (output of RiskControlAgent on variantImages).
+        // Fallback to designImages if safeImages is empty (e.g. pipeline short-circuited).
+        List<String> images;
+        if (ctx.safeImages != null && !ctx.safeImages.isEmpty()) {
+            images = new ArrayList<>(ctx.safeImages);
+        } else if (ctx.designImages != null) {
+            images = new ArrayList<>(ctx.designImages);
+        } else {
+            images = Collections.emptyList();
+        }
 
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("images",       images);
