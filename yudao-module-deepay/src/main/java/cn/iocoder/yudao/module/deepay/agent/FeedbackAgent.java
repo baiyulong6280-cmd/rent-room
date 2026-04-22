@@ -12,17 +12,22 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import javax.annotation.Resource;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
- * FeedbackAgent — 记录用户选图反馈并更新图片评分（Phase 8）。
+ * FeedbackAgent — 记录用户选图反馈并更新图片评分（Phase 8 升级版 STEP 28）。
  *
- * <p>对每张评分图：
- * <ul>
- *   <li>写入 deepay_feedback（selected=1 表示被用户选中）</li>
- *   <li>更新 deepay_design_image 评分：选中 +10，未选中 score = max(0, score-5)</li>
- * </ul>
+ * <p>升级版评分公式（三因子）：
+ * <pre>
+ *   score = clickRate * 0.3 + conversionRate * 0.5 + freshness * 0.2
+ *
+ *   clickRate      = clickCount / max(1, viewCount)         取值 0~1，×100 归一化
+ *   conversionRate = orderCount / max(1, clickCount)        取值 0~1，×100 归一化
+ *   freshness      = 1 / (1 + daysSinceCreate)              越新越高，取值 0~1，×100 归一化
+ * </pre>
  * </p>
  */
 @Component
@@ -30,10 +35,10 @@ public class FeedbackAgent implements Agent {
 
     private static final Logger log = LoggerFactory.getLogger(FeedbackAgent.class);
 
-    /** 用户选中图片的分数加成 */
-    private static final double SELECTED_BONUS   = 10.0;
-    /** 用户未选中图片的分数扣减 */
-    private static final double UNSELECTED_PENALTY = 5.0;
+    // 三因子权重（STEP 28）
+    private static final double CLICK_WEIGHT      = 0.3;
+    private static final double CONVERSION_WEIGHT = 0.5;
+    private static final double FRESHNESS_WEIGHT  = 0.2;
 
     @Resource
     private DeepayFeedbackMapper feedbackMapper;
@@ -53,13 +58,21 @@ public class FeedbackAgent implements Agent {
             String selectedUrl = ctx.selectedImage;
 
             for (DesignImage img : ctx.scoredImages) {
-                int selected = StringUtils.hasText(selectedUrl) && selectedUrl.equals(img.getUrl()) ? 1 : 0;
+                boolean isSelected = StringUtils.hasText(selectedUrl) && selectedUrl.equals(img.getUrl());
 
-                // 写入反馈记录
-                saveFeedback(img.getUrl(), userId, selected);
+                // 1. 每次曝光都递增 view_count
+                designImageMapper.incrementViewCount(img.getUrl());
 
-                // 更新 deepay_design_image 分数
-                updateImageScore(img.getUrl(), selected);
+                // 2. 选中时递增 click_count
+                if (isSelected) {
+                    designImageMapper.incrementClickCount(img.getUrl());
+                }
+
+                // 3. 写入反馈记录
+                saveFeedback(img.getUrl(), userId, isSelected ? 1 : 0);
+
+                // 4. 按三因子公式重算综合分
+                recalculateScore(img.getUrl());
             }
 
             log.info("[FeedbackAgent] 反馈记录完成 total={} selectedUrl={}",
@@ -83,32 +96,43 @@ public class FeedbackAgent implements Agent {
         }
     }
 
-    private void updateImageScore(String imageUrl, int selected) {
+    /**
+     * 按三因子公式重算并更新综合分（STEP 28）。
+     *
+     * <pre>
+     *   score = clickRate * 0.3 + conversionRate * 0.5 + freshness * 0.2
+     * </pre>
+     */
+    private void recalculateScore(String imageUrl) {
         try {
-            // 先查出该图片记录
             List<DeepayDesignImageDO> records = designImageMapper.selectList(
                     new LambdaQueryWrapper<DeepayDesignImageDO>()
                             .eq(DeepayDesignImageDO::getUrl, imageUrl)
                             .orderByDesc(DeepayDesignImageDO::getCreatedAt)
                             .last("LIMIT 1"));
-            if (records.isEmpty()) {
-                return;
-            }
-            DeepayDesignImageDO record = records.get(0);
-            double currentScore = record.getScore() != null ? record.getScore() : 0;
+            if (records.isEmpty()) return;
+            DeepayDesignImageDO rec = records.get(0);
 
-            double newScore;
-            if (selected == 1) {
-                newScore = currentScore + SELECTED_BONUS;
-            } else {
-                newScore = Math.max(0, currentScore - UNSELECTED_PENALTY);
-            }
+            int viewCount  = rec.getViewCount()  != null ? rec.getViewCount()  : 0;
+            int clickCount = rec.getClickCount()  != null ? rec.getClickCount() : 0;
+            int orderCount = rec.getOrderCount()  != null ? rec.getOrderCount() : 0;
+
+            double clickRate      = (double) clickCount  / Math.max(1, viewCount);
+            double conversionRate = (double) orderCount  / Math.max(1, clickCount);
+
+            long daysSince = rec.getCreatedAt() != null
+                    ? ChronoUnit.DAYS.between(rec.getCreatedAt().toLocalDate(), LocalDate.now()) : 0;
+            double freshness = 1.0 / (1 + daysSince);
+
+            double newScore = (clickRate * CLICK_WEIGHT
+                             + conversionRate * CONVERSION_WEIGHT
+                             + freshness * FRESHNESS_WEIGHT) * 100.0;
 
             designImageMapper.update(null, new LambdaUpdateWrapper<DeepayDesignImageDO>()
-                    .eq(DeepayDesignImageDO::getId, record.getId())
+                    .eq(DeepayDesignImageDO::getId, rec.getId())
                     .set(DeepayDesignImageDO::getScore, newScore));
         } catch (Exception e) {
-            log.warn("[FeedbackAgent] 更新 deepay_design_image 分数失败 url={}", imageUrl, e);
+            log.warn("[FeedbackAgent] 重算评分失败 url={}", imageUrl, e);
         }
     }
 

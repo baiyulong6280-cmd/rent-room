@@ -7,6 +7,7 @@ import cn.iocoder.yudao.module.deepay.agent.InventoryAgent;
 import cn.iocoder.yudao.module.deepay.dal.dataobject.DeepayMetricsDO;
 import cn.iocoder.yudao.module.deepay.dal.dataobject.DeepayOrderDO;
 import cn.iocoder.yudao.module.deepay.dal.dataobject.DeepayProductDO;
+import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayDesignImageMapper;
 import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayMetricsMapper;
 import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayOrderMapper;
 import cn.iocoder.yudao.module.deepay.dal.mysql.DeepayProductMapper;
@@ -65,6 +66,7 @@ public class DeepayPaymentCallbackController {
     @Resource private DeepayOrderMapper   deepayOrderMapper;
     @Resource private DeepayProductMapper deepayProductMapper;
     @Resource private DeepayMetricsMapper deepayMetricsMapper;
+    @Resource private DeepayDesignImageMapper deepayDesignImageMapper;
     @Resource private InventoryAgent      inventoryAgent;
     @Resource private AIDecisionAgent     aiDecisionAgent;
     @Resource private DeepayAuditService  auditService;
@@ -97,7 +99,7 @@ public class DeepayPaymentCallbackController {
         // 3. 扣减库存（Redisson 分布式锁 + 原子 SQL，在 InventoryAgent 内部持有）
         int remaining = inventoryAgent.onPaid(chainCode);
 
-        // 4. Phase 4 — 计算并持久化 profit / roi
+        // 4. Phase 4 — 查询商品，计算并持久化 profit / roi
         DeepayProductDO product = deepayProductMapper.selectByChainCode(chainCode);
         BigDecimal profit = null;
         BigDecimal roi    = null;
@@ -105,6 +107,19 @@ public class DeepayPaymentCallbackController {
                 && product.getCostPrice().compareTo(BigDecimal.ZERO) > 0) {
             profit = product.getPrice().subtract(product.getCostPrice()).setScale(2, RoundingMode.HALF_UP);
             roi    = profit.divide(product.getCostPrice(), 4, RoundingMode.HALF_UP);
+        }
+
+        // 4b. STEP 28 — 对该商品关联的设计图递增 order_count，闭合权重学习回路
+        if (product != null && product.getDesignId() != null) {
+            try {
+                cn.iocoder.yudao.module.deepay.dal.dataobject.DeepayDesignImageDO designImg =
+                        deepayDesignImageMapper.selectById(product.getDesignId());
+                if (designImg != null) {
+                    deepayDesignImageMapper.incrementOrderCount(designImg.getUrl());
+                }
+            } catch (Exception ex) {
+                log.warn("[PaymentCallback] order_count 更新失败 chainCode={}", chainCode, ex);
+            }
         }
 
         // 5. 更新 deepay_metrics：sold_count++, pay_count++, 利润快照, conversion_rate

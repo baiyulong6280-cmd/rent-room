@@ -172,11 +172,11 @@ public class ProductionOrchestrator {
         }
         ctx = styleConsistencyAgent.run(ctx);
         ctx = designSplitAgent.run(ctx);
-        ctx = riskControlAgent.run(ctx);
         ctx = designGenAgent.run(ctx);
         ctx = imageScoringAgent.run(ctx);
         ctx = feedbackAgent.run(ctx);
         ctx = designVariantAgent.run(ctx);
+        ctx = riskControlAgent.run(ctx);
         ctx = patternPrepareAgent.run(ctx);
         ctx = costEstimateAgent.run(ctx);
         snapshotService.save(ctx, "Phase8[Design]");
