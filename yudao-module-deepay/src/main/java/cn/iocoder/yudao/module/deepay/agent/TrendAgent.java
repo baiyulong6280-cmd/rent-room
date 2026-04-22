@@ -15,6 +15,7 @@ import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -83,7 +84,7 @@ public class TrendAgent implements Agent {
         }
 
         // ---- 排序 + 取 Top 20 ----
-        all.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
+        all.sort(Comparator.comparingDouble(TrendItem::getScore).reversed());
         ctx.trendItems = all.stream().limit(20).collect(Collectors.toList());
 
         // ---- 写 referenceImages（供 DesignAgent 消费）----

@@ -140,12 +140,16 @@ public class SelectionFeedAgent implements Agent {
                 pool.setCategory(item.getCategory());
                 pool.setStyle(item.getStyle());
                 pool.setSource(item.getSource());
-                pool.setScore(item.getScore() > 0 ? item.getScore() : (double) (item.getSoldCount() != null ? item.getSoldCount() : 0));
+                pool.setScore(resolveScore(item));
                 pool.setCreatedAt(LocalDateTime.now());
                 selectionPoolMapper.insert(pool);
             } catch (Exception e) {
                 log.debug("[SelectionFeedAgent] 持久化 selection_pool 跳过（可能已存在）: {}", item.getImageUrl());
             }
         }
+    }
+
+    private double resolveScore(TrendItem item) {
+        return item.getScore() > 0 ? item.getScore() : (double) (item.getSoldCount() != null ? item.getSoldCount() : 0);
     }
 }

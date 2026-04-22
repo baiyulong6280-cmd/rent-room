@@ -79,13 +79,13 @@ public class DesignAgent implements Agent {
     // STEP 12: append trend reference hint if trendItems available
     private String appendTrendHint(String prompt, Context ctx) {
         if (ctx.trendItems == null || ctx.trendItems.isEmpty()) return prompt;
-        String trendHint = ctx.trendItems.stream()
+        String topTrendUrls = ctx.trendItems.stream()
                 .limit(3)
                 .map(TrendItem::getImageUrl)
                 .filter(StringUtils::hasText)
                 .collect(java.util.stream.Collectors.joining(", "));
-        if (StringUtils.hasText(trendHint)) {
-            return prompt + ", trend reference: " + trendHint;
+        if (StringUtils.hasText(topTrendUrls)) {
+            return prompt + ", trend reference: " + topTrendUrls;
         }
         return prompt;
     }

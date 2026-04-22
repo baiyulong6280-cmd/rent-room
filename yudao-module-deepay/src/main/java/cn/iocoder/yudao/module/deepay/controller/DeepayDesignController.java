@@ -80,16 +80,11 @@ public class DeepayDesignController {
         orchestrator.run(ctx);
 
         // Collect ≥6 images: designImages + variantImages (safeImages preferred)
-        List<String> images = new ArrayList<>();
-        if (ctx.safeImages != null && !ctx.safeImages.isEmpty()) {
-            images.addAll(ctx.safeImages);
-        }
-        if (ctx.designImages != null) {
-            ctx.designImages.forEach(url -> { if (!images.contains(url)) images.add(url); });
-        }
-        if (ctx.variantImages != null) {
-            ctx.variantImages.forEach(url -> { if (!images.contains(url)) images.add(url); });
-        }
+        Set<String> seen = new LinkedHashSet<>();
+        if (ctx.safeImages != null) seen.addAll(ctx.safeImages);
+        if (ctx.designImages != null) seen.addAll(ctx.designImages);
+        if (ctx.variantImages != null) seen.addAll(ctx.variantImages);
+        List<String> images = new ArrayList<>(seen);
 
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("images",       images);
