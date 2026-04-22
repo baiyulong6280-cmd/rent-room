@@ -59,14 +59,16 @@ public interface DeepayUserQuotaMapper extends BaseMapperX<DeepayUserQuotaDO> {
 
     /**
      * 新增付费额度（付费充值场景）。
+     * 使用 MyBatis-Plus setSql 占位符避免 SQL 注入。
      *
      * @param userId 用户 ID
-     * @param amount 充值次数
+     * @param amount 充值次数（必须为正整数）
      */
     default void addPaidQuota(String userId, int amount) {
+        if (amount <= 0) return;
         update(null, new LambdaUpdateWrapper<DeepayUserQuotaDO>()
                 .eq(DeepayUserQuotaDO::getUserId, userId)
-                .setSql("paid_quota = paid_quota + " + amount)
+                .setSql("paid_quota = paid_quota + {0}", amount)
                 .set(DeepayUserQuotaDO::getUpdatedAt, LocalDateTime.now()));
     }
 

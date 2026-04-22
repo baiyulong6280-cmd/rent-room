@@ -12,6 +12,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -66,7 +67,7 @@ public class OssServiceImpl implements OssService {
         }
         try {
             // Redis 去重：相同 URL 只上传一次（key = img:{md5}，TTL 24h）
-            String dedupKey = OSS_DEDUP_PREFIX + DigestUtils.md5DigestAsHex(imageUrl.getBytes());
+            String dedupKey = OSS_DEDUP_PREFIX + DigestUtils.md5DigestAsHex(imageUrl.getBytes(StandardCharsets.UTF_8));
             String existing = stringRedisTemplate.opsForValue().get(dedupKey);
             if (StringUtils.hasText(existing)) {
                 log.debug("[OssService] OSS 去重命中 url={} -> {}", imageUrl, existing);

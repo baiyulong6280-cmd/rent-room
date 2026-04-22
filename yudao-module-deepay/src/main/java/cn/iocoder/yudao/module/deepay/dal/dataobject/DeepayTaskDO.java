@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
  * CREATE TABLE deepay_task (
  *     id         BIGINT PRIMARY KEY AUTO_INCREMENT,
  *     user_id    VARCHAR(64),
- *     status     VARCHAR(20),   -- pending / running / done / failed
+ *     status     VARCHAR(20),   -- pending / running / success / failed
  *     result     TEXT,          -- JSON：safeImages 列表
  *     error_msg  VARCHAR(1024),
  *     created_at DATETIME
@@ -39,7 +39,6 @@ public class DeepayTaskDO {
      * failed  — 执行失败（见 errorMsg）。
      */
     private String status;
-
     /** 执行结果，JSON 序列化的 safeImages 列表 */
     private String result;
 

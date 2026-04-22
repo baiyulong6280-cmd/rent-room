@@ -41,9 +41,10 @@ public class DeepayQuotaService {
 
     /** 定价包 ID → {次数, 价格(欧元), 描述} */
     public enum PricingPlan {
-        PACK_S(10,  "1.99",  "再生成10款爆款只需 €1.99"),
-        PACK_M(30,  "4.99",  "30次畅享设计，仅 €4.99"),
-        PACK_L(100, "12.99", "100次专业版，€12.99 省到爆");
+        PACK_S  (10,   "1.99",  "再生成10款爆款只需 €1.99"),
+        PACK_M  (30,   "4.99",  "30次畅享设计 ⭐推荐"),
+        PACK_L  (100,  "12.99", "100次专业版，€12.99 省到爆"),
+        DAY_PASS(9999, "2.99",  "今日不限次数，€2.99/天 限时");
 
         public final int    quota;
         public final String priceEur;
@@ -195,8 +196,8 @@ public class DeepayQuotaService {
             }
             return new QuotaCheckResult(
                     true,
-                    "今日免费次数已用完，AI帮你找爆款款式，再生成10张只需 €1.99",
-                    "解锁更多设计次数",
+                    "今日免费次数已用完 — AI已分析1688/TikTok爆款趋势，再生成10款只需 €1.99",
+                    "解锁更多爆款设计次数",
                     plans
             );
         }
