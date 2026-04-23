@@ -1,6 +1,95 @@
 <!--
-  Pay.vue — 支付结果页
-  路由：/pay/:id   id = paymentId
+  Pay.vue — 支付结果页（/pay/:id 路由，支付网关跳回）
+  Deblock暗色风 · 绿色成功状态 · 配额卡片
+-->
+<script setup>
+import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { getQuotaInfo } from '@/api'
+
+const route  = useRoute()
+const router = useRouter()
+
+const status  = ref('loading')
+const quota   = ref(null)
+const message = ref('')
+
+const USER_ID = localStorage.getItem('deepay_uid') || 'u1'
+
+onMounted(async () => {
+  const result = route.query.result || 'success'
+  if (result === 'success') {
+    status.value  = 'success'
+    message.value = '解锁成功！快去生成爆款吧'
+    try { quota.value = await getQuotaInfo(USER_ID) } catch (_) {}
+  } else {
+    status.value  = 'failed'
+    message.value = '支付未完成，请重试'
+  }
+})
+</script>
+
+<template>
+  <div class="min-h-screen bg-bg text-white
+              flex flex-col items-center justify-center
+              px-6 text-center fade-up">
+
+    <!-- Loading -->
+    <template v-if="status === 'loading'">
+      <svg class="animate-spin h-10 w-10 text-accent mb-5"
+           viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" stroke="currentColor"
+                stroke-opacity=".2" stroke-width="3"/>
+        <path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor"
+              stroke-width="3" stroke-linecap="round"/>
+      </svg>
+      <p class="text-[#9CA3AF] text-sm">确认支付结果中…</p>
+    </template>
+
+    <!-- Success -->
+    <template v-else-if="status === 'success'">
+      <p class="text-6xl mb-5">🎉</p>
+      <h2 class="text-xl font-semibold mb-1.5">{{ message }}</h2>
+      <p class="text-[#9CA3AF] text-sm mb-7">已为你解锁更多生成次数</p>
+
+      <!-- 配额卡片 -->
+      <div v-if="quota"
+           class="w-full max-w-[300px] rounded-2xl overflow-hidden mb-7"
+           style="background:#111;border:1px solid #1A1A1A;box-shadow:0 0 24px rgba(0,0,0,.35)">
+        <div class="flex justify-between px-5 py-3.5 text-sm border-b border-[#1A1A1A]">
+          <span class="text-[#9CA3AF]">免费剩余</span>
+          <strong>{{ quota.remainFree }} 次</strong>
+        </div>
+        <div class="flex justify-between px-5 py-3.5 text-sm border-b border-[#1A1A1A]">
+          <span class="text-[#9CA3AF]">付费剩余</span>
+          <strong>{{ quota.remainPaid }} 次</strong>
+        </div>
+        <div class="flex justify-between px-5 py-3.5 text-sm">
+          <span class="text-[#9CA3AF]">合计可用</span>
+          <strong class="text-accent text-base">
+            {{ (quota.remainFree ?? 0) + (quota.remainPaid ?? 0) }} 次
+          </strong>
+        </div>
+      </div>
+
+      <button class="btn-primary max-w-[280px] text-sm font-medium"
+              @click="router.push('/generate')">
+        立即生成爆款设计
+      </button>
+    </template>
+
+    <!-- Failed -->
+    <template v-else>
+      <p class="text-6xl mb-5">😕</p>
+      <h2 class="text-xl font-semibold mb-7">{{ message }}</h2>
+      <button class="btn-primary max-w-[280px] text-sm font-medium"
+              @click="router.push('/generate')">
+        返回重试
+      </button>
+    </template>
+
+  </div>
+</template>
 
   支付网关跳转回此页后，展示成功/失败状态，
   并返回最新配额（STEP 42：支付成功后显示剩余次数）。
