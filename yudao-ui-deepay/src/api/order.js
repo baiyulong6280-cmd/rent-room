@@ -1,23 +1,19 @@
 /**
  * order.js — order & payment API
+ * X-User-Id header injected automatically by request.js interceptor.
  */
-import axios from 'axios'
+import http from '@/utils/request'
 
-const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '',
-  timeout: 30_000,
-  headers: { 'Content-Type': 'application/json' },
-})
-
-// Unwrap CommonResult { code, data, msg }
-http.interceptors.response.use(
-  res => res.data?.data ?? res.data,
-  err => Promise.reject(err)
-)
-
-/** Create a product order → { orderId, paymentId, payUrl } */
-export function createOrder(userId, chainCode, amount) {
-  return http.post('/api/order/create', { userId, chainCode, amount })
+/**
+ * Create a product purchase order.
+ * Returns { orderId, payUrl }
+ * @param {string} shopId
+ * @param {number} amount    decimal e.g. 29.99
+ * @param {string} currency  e.g. 'EUR'
+ * @param {string|null} refUser  referral user id (first-touch attribution)
+ */
+export function createOrder(shopId, amount, currency = 'EUR', refUser = null) {
+  return http.post('/api/order/create', { shopId, amount, currency, refUser })
 }
 
 /** Create a quota payment order → { payUrl, paymentId, priceEur } */

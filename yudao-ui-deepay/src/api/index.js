@@ -1,20 +1,9 @@
 /**
  * Deepay API module — all backend calls in one place.
  * Base URL is proxied via vite.config.js in dev; set VITE_API_BASE in .env for prod.
+ * X-User-Id header is injected automatically by src/utils/request.js interceptor.
  */
-import axios from 'axios'
-
-const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '',
-  timeout: 30_000,
-  headers: { 'Content-Type': 'application/json' },
-})
-
-// Unwrap the yudao CommonResult wrapper { code, data, msg }
-http.interceptors.response.use(
-  res => res.data?.data ?? res.data,
-  err => Promise.reject(err)
-)
+import http from '@/utils/request'
 
 // ── Design ────────────────────────────────────────────────────────────
 
@@ -67,7 +56,14 @@ export function getShopPage(id, currency = 'EUR') {
   return http.get(`/api/shop/${id}`, { params: { currency } })
 }
 
-/** Create order (returns { orderId, paymentId, payUrl }) */
-export function createOrder(userId, chainCode, amount) {
-  return http.post('/api/order/create', { userId, chainCode, amount })
+/**
+ * Create a product purchase order.
+ * Returns { orderId, payUrl }
+ * @param {string} shopId
+ * @param {number} amount    decimal e.g. 29.99
+ * @param {string} currency  e.g. 'EUR'
+ * @param {string|null} refUser  referral user id (first-touch attribution)
+ */
+export function createOrder(shopId, amount, currency = 'EUR', refUser = null) {
+  return http.post('/api/order/create', { shopId, amount, currency, refUser })
 }
