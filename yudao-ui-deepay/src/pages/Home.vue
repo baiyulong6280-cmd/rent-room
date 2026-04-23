@@ -12,11 +12,12 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { templates } from '@/data/templates'
 import { getQuotaInfo } from '@/api/design'
+import { initUserId } from '@/utils/user'
 
 const router  = useRouter()
 const prompt  = ref('')
 
-const USER_ID      = localStorage.getItem('deepay_uid') || 'u1'
+const USER_ID      = initUserId()
 const remainFree   = ref(3)
 const remainPaid   = ref(0)
 const totalRemain  = computed(() => remainFree.value + remainPaid.value)

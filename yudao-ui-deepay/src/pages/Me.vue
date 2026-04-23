@@ -3,16 +3,39 @@
   路径：/me
 
   功能：
-  ✔ 我的店铺列表（从 localStorage 读取）
-  ✔ 我的设计（从 localStorage 读取 AI 设计）
-  ✔ 清空单个店铺
+  ✔ 用户 ID 初始化（首次生成）
+  ✔ 佣金收益卡片（总收益 + 明细）
+  ✔ 我的店铺列表（localStorage）
+  ✔ 分享链接带 ?ref=myUserId（裂变）
 -->
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { initUserId, buildShareLink, shareOrCopy } from '@/utils/user'
+import { getEarnings } from '@/api/user'
 
 const router = useRouter()
 
+// ── 用户身份 ────────────────────────────────────────────────────────
+const userId = initUserId()
+
+// ── 佣金收益 ────────────────────────────────────────────────────────
+const totalEarn       = ref(null)   // null = loading
+const commissionList  = ref([])
+const earningsError   = ref(false)
+
+async function loadEarnings() {
+  try {
+    const data = await getEarnings(userId)
+    totalEarn.value      = data?.total      ?? 0
+    commissionList.value = data?.list       ?? []
+  } catch (_) {
+    earningsError.value = true
+    totalEarn.value     = 0
+  }
+}
+
+// ── 店铺列表（localStorage）─────────────────────────────────────────
 function loadShops() {
   const result = []
   for (let i = 0; i < localStorage.length; i++) {
@@ -24,25 +47,20 @@ function loadShops() {
       } catch (_) {}
     }
   }
-  // newest first
   return result.sort((a, b) => Number(b.shopId) - Number(a.shopId))
 }
 
-const shops = ref(loadShops())
+const shops = ref([])
 
 function deleteShop(shopId) {
   localStorage.removeItem(`shop_${shopId}`)
   shops.value = loadShops()
 }
 
-function shareShop(shopId) {
-  const url = `${window.location.origin}/shop/${shopId}`
-  if (navigator.share) {
-    navigator.share({ title: '我的店铺', url })
-  } else {
-    navigator.clipboard?.writeText(url)
-      .then(() => alert('店铺链接已复制！'))
-  }
+// 分享带 ref 的裂变链接
+function shareShop(shopId, shopName) {
+  const link = buildShareLink(shopId, userId)
+  shareOrCopy(link, shopName || '我的店铺')
 }
 
 function formatDate(shopId) {
@@ -50,10 +68,15 @@ function formatDate(shopId) {
     return new Date(Number(shopId)).toLocaleDateString('zh-CN', {
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
     })
-  } catch (_) {
-    return ''
-  }
+  } catch (_) { return '' }
 }
+
+const hasEarnings = computed(() => totalEarn.value !== null && totalEarn.value > 0)
+
+onMounted(() => {
+  shops.value = loadShops()
+  loadEarnings()
+})
 </script>
 
 <template>
@@ -75,7 +98,72 @@ function formatDate(shopId) {
 
     <div class="max-w-[480px] mx-auto px-4 pt-5 pb-24">
 
-      <!-- 我的店铺 -->
+      <!-- ── 佣金收益卡片 ──────────────────────────────────────── -->
+      <section class="mb-6">
+        <div class="card p-5 rounded-2xl"
+             style="background:linear-gradient(135deg,#0f2d1a,#111)">
+
+          <!-- 总收益 -->
+          <div class="flex items-start justify-between mb-4">
+            <div>
+              <p class="text-xs text-muted mb-1">我的佣金收益</p>
+              <div v-if="totalEarn === null"
+                   class="h-8 w-24 bg-surface2 rounded animate-pulse" />
+              <p v-else class="text-3xl font-black text-accent">
+                €{{ Number(totalEarn).toFixed(2) }}
+              </p>
+            </div>
+            <span class="text-xs px-2 py-1 rounded-full font-semibold"
+                  style="background:#00FF8822;color:#00FF88">
+              10% 佣金
+            </span>
+          </div>
+
+          <!-- 分成说明 -->
+          <p class="text-xs text-muted mb-4">
+            每带来一笔订单自动结算 10% 佣金 · 分享越多赚越多
+          </p>
+
+          <!-- 推广链接 -->
+          <div class="bg-bg/60 rounded-xl p-3 mb-4">
+            <p class="text-[10px] text-muted mb-1 uppercase tracking-widest">我的专属推广链接</p>
+            <p class="text-xs text-white/80 font-mono truncate">
+              {{ `${$window?.location?.origin || ''}/shop/...?ref=${userId}` }}
+            </p>
+          </div>
+
+          <!-- 佣金明细（最近5条）-->
+          <div v-if="commissionList.length" class="space-y-2">
+            <p class="text-[10px] text-muted uppercase tracking-widest mb-2">最近佣金</p>
+            <div
+              v-for="item in commissionList.slice(0, 5)"
+              :key="item.orderId"
+              class="flex items-center justify-between text-sm"
+            >
+              <div class="flex items-center gap-2">
+                <span class="w-1.5 h-1.5 rounded-full shrink-0"
+                      :style="{ background: item.status === 'settled' ? '#00FF88' : '#F59E0B' }" />
+                <span class="text-muted text-xs font-mono truncate max-w-[140px]">
+                  {{ item.orderId }}
+                </span>
+              </div>
+              <span class="font-semibold text-xs"
+                    :style="{ color: item.status === 'settled' ? '#00FF88' : '#F59E0B' }">
+                +€{{ Number(item.amount).toFixed(2) }}
+              </span>
+            </div>
+          </div>
+
+          <!-- 无佣金空态 -->
+          <div v-else-if="!earningsError" class="text-center py-3">
+            <p class="text-muted text-xs">还没有佣金记录</p>
+            <p class="text-muted text-xs mt-1">分享你的店铺链接，带来订单即可赚钱 💰</p>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ── 我的店铺 ──────────────────────────────────────────── -->
       <section class="mb-8">
         <div class="flex items-center justify-between mb-3">
           <h2 class="font-semibold text-sm">我的店铺</h2>
@@ -83,19 +171,14 @@ function formatDate(shopId) {
         </div>
 
         <!-- 空状态 -->
-        <div v-if="!shops.length"
-             class="card p-8 text-center">
+        <div v-if="!shops.length" class="card p-8 text-center">
           <p class="text-3xl mb-3">🏪</p>
           <p class="text-muted text-sm mb-4">还没有店铺</p>
           <div class="flex gap-2 justify-center">
             <button class="btn-primary max-w-[140px] text-sm"
-                    @click="router.push('/template')">
-              选模板开店
-            </button>
+                    @click="router.push('/template')">选模板开店</button>
             <button class="btn-ghost max-w-[140px] text-sm"
-                    @click="router.push('/generate')">
-              AI生成
-            </button>
+                    @click="router.push('/generate')">AI生成</button>
           </div>
         </div>
 
@@ -106,10 +189,9 @@ function formatDate(shopId) {
             :key="shop.shopId"
             class="card overflow-hidden"
           >
-            <!-- 店铺头部（主题色）-->
+            <!-- 店铺头部 -->
             <div
-              class="flex items-center gap-3 p-3 cursor-pointer
-                     active:opacity-80 transition-opacity"
+              class="flex items-center gap-3 p-3 cursor-pointer active:opacity-80 transition-opacity"
               :style="{ background: shop.gradient || '#1A1A1A' }"
               @click="router.push(`/shop/${shop.shopId}`)"
             >
@@ -132,18 +214,15 @@ function formatDate(shopId) {
 
             <!-- 操作栏 -->
             <div class="flex items-center gap-2 px-3 py-2.5 border-t border-border">
-              <!-- 店铺链接 -->
-              <span class="text-muted text-xs flex-1 truncate">
-                /shop/{{ shop.shopId }}
-              </span>
-              <!-- 分享 -->
+              <span class="text-muted text-xs flex-1 truncate">/shop/{{ shop.shopId }}</span>
+              <!-- 分享赚钱（带 ref）-->
               <button
                 class="text-xs font-semibold px-3 py-1.5 rounded-full
-                       bg-surface2 text-white border border-border
                        active:scale-95 transition-transform duration-100"
-                @click="shareShop(shop.shopId)"
+                style="background:#00FF8820;color:#00FF88;border:1px solid #00FF8840"
+                @click="shareShop(shop.shopId, shop.name)"
               >
-                分享
+                分享赚钱
               </button>
               <!-- 删除 -->
               <button
@@ -159,8 +238,8 @@ function formatDate(shopId) {
         </div>
       </section>
 
-      <!-- 新建入口 -->
-      <section>
+      <!-- ── 新建入口 ──────────────────────────────────────────── -->
+      <section class="mb-8">
         <h2 class="font-semibold text-sm mb-3">新建</h2>
         <div class="grid grid-cols-2 gap-3">
           <button
@@ -182,6 +261,11 @@ function formatDate(shopId) {
         </div>
       </section>
 
+      <!-- ── 用户 ID（底部小字，方便调试）──────────────────────── -->
+      <p class="text-center text-muted text-[10px] font-mono break-all">
+        ID: {{ userId }}
+      </p>
+
     </div>
 
     <!-- 底部导航 -->
@@ -189,11 +273,9 @@ function formatDate(shopId) {
                 bg-bg/95 backdrop-blur-md border-t border-border
                 flex items-center justify-around
                 px-2 pt-2 pb-[calc(.5rem+env(safe-area-inset-bottom))]">
-      <button
-        class="flex flex-col items-center gap-0.5 px-4 py-1 text-muted
-               active:text-white transition-colors"
-        @click="router.push('/')"
-      >
+      <button class="flex flex-col items-center gap-0.5 px-4 py-1 text-muted
+                     active:text-white transition-colors"
+              @click="router.push('/')">
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24"
              stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round"
@@ -201,22 +283,18 @@ function formatDate(shopId) {
         </svg>
         <span class="text-[10px] font-semibold">首页</span>
       </button>
-      <button
-        class="flex flex-col items-center gap-0.5 px-4 py-1 text-muted
-               active:text-white transition-colors"
-        @click="router.push('/generate')"
-      >
+      <button class="flex flex-col items-center gap-0.5 px-4 py-1 text-muted
+                     active:text-white transition-colors"
+              @click="router.push('/generate')">
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24"
              stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
         </svg>
         <span class="text-[10px] font-semibold">AI生成</span>
       </button>
-      <button
-        class="flex flex-col items-center gap-0.5 px-4 py-1 text-muted
-               active:text-white transition-colors"
-        @click="router.push('/template')"
-      >
+      <button class="flex flex-col items-center gap-0.5 px-4 py-1 text-muted
+                     active:text-white transition-colors"
+              @click="router.push('/template')">
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24"
              stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round"
@@ -224,9 +302,7 @@ function formatDate(shopId) {
         </svg>
         <span class="text-[10px] font-semibold">模板</span>
       </button>
-      <button
-        class="flex flex-col items-center gap-0.5 px-4 py-1 text-accent"
-      >
+      <button class="flex flex-col items-center gap-0.5 px-4 py-1 text-accent">
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24"
              stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round"
