@@ -37,3 +37,23 @@ export function getLeaderboard() {
 export function getMyRank() {
   return http.get('/api/user/myRank')
 }
+
+/**
+ * 获取用户总资产面板（单接口，秒开）
+ * @returns {Promise<{
+ *   totalEarn: number, balance: number, frozen: number,
+ *   inviteCount: number, inviteEarn: number,
+ *   shareAmount: number, dividendEarn: number
+ * }>}
+ */
+export function getDashboard() {
+  return http.get('/api/user/dashboard')
+}
+
+/**
+ * 获取平台累计数据（信任背书）
+ * @returns {Promise<{ totalDividend: number, totalUsers: number, totalOrders: number }>}
+ */
+export function getPlatformStats() {
+  return http.get('/api/platform/stats')
+}

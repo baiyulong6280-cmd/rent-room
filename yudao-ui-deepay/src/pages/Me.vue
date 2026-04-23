@@ -1,44 +1,53 @@
 <!--
-  Me.vue — 我的页面
+  Me.vue — 用户资产中心
   路径：/me
 
   功能：
-  ✔ 用户 ID 初始化（首次生成）
-  ✔ 佣金收益卡片（总收益 + 明细）
-  ✔ 我的店铺列表（localStorage）
-  ✔ 分享链接带 ?ref=myUserId（裂变）
+  ✔ 总资产面板（totalEarn / balance / frozen / dividendEarn）
+  ✔ 邀请数据（inviteCount / inviteEarn）
+  ✔ 持有份额（shareAmount）
+  ✔ 平台信任背书（累计分红）
+  ✔ 提现表单 + 提现记录
+  ✔ 我的店铺列表
+  ✔ 快捷导航：排行榜 / 邀请 / 新建店铺
 -->
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { initUserId, buildShareLink, shareOrCopy } from '@/utils/user'
-import { getEarnings } from '@/api/user'
-import { applyWithdraw, getWithdrawList, getUserBalance } from '@/api/withdraw'
+import { getDashboard, getPlatformStats } from '@/api/user'
+import { applyWithdraw, getWithdrawList } from '@/api/withdraw'
 
 const router = useRouter()
-
-// ── 用户身份 ────────────────────────────────────────────────────────
 const userId = initUserId()
 
-// ── 佣金收益 ────────────────────────────────────────────────────────
-const totalEarn       = ref(null)   // null = loading
-const commissionList  = ref([])
-const earningsError   = ref(false)
+// ── 总资产面板（单接口）─────────────────────────────────────────────
+const dash        = ref(null)   // null = loading
+const dashError   = ref(false)
 
-async function loadEarnings() {
+async function loadDashboard() {
   try {
-    const data = await getEarnings(userId)
-    totalEarn.value      = data?.total      ?? 0
-    commissionList.value = data?.list       ?? []
+    dash.value = await getDashboard()
   } catch (_) {
-    earningsError.value = true
-    totalEarn.value     = 0
+    dashError.value = true
+    dash.value = {
+      totalEarn: 0, balance: 0, frozen: 0,
+      inviteCount: 0, inviteEarn: 0,
+      shareAmount: 0, dividendEarn: 0,
+    }
   }
 }
 
-// ── 余额 + 提现 ─────────────────────────────────────────────────────
-const balance        = ref(null)
-const frozen         = ref(0)
+// ── 平台累计数据（信任背书）─────────────────────────────────────────
+const platformStats = ref(null)
+
+async function loadPlatformStats() {
+  try {
+    platformStats.value = await getPlatformStats()
+  } catch (_) {}
+}
+
+// ── 提现 ────────────────────────────────────────────────────────────
 const withdrawAmount = ref('')
 const withdrawAcct   = ref('')
 const withdrawing    = ref(false)
@@ -46,20 +55,8 @@ const withdrawError  = ref('')
 const withdrawOk     = ref(false)
 const withdrawList   = ref([])
 
-async function loadBalance() {
-  try {
-    const data    = await getUserBalance()
-    balance.value = data?.balance ?? 0
-    frozen.value  = data?.frozen  ?? 0
-  } catch (_) {
-    balance.value = 0
-  }
-}
-
 async function loadWithdrawList() {
-  try {
-    withdrawList.value = await getWithdrawList() ?? []
-  } catch (_) {}
+  try { withdrawList.value = await getWithdrawList() ?? [] } catch (_) {}
 }
 
 async function submitWithdraw() {
@@ -67,24 +64,22 @@ async function submitWithdraw() {
   withdrawOk.value    = false
   const amt = Number(withdrawAmount.value)
   if (!amt || amt < 10) {
-    withdrawError.value = '最低提现金额 €10'
-    return
+    withdrawError.value = '最低提现金额 €10'; return
   }
   if (!withdrawAcct.value.trim()) {
-    withdrawError.value = '请填写收款账号'
-    return
+    withdrawError.value = '请填写收款账号'; return
   }
-  if (balance.value !== null && amt > balance.value) {
-    withdrawError.value = `余额不足（可提现 €${Number(balance.value).toFixed(2)}）`
-    return
+  const avail = dash.value?.balance ?? 0
+  if (amt > avail) {
+    withdrawError.value = `余额不足（可提现 €${Number(avail).toFixed(2)}）`; return
   }
   withdrawing.value = true
   try {
     await applyWithdraw(amt, withdrawAcct.value.trim())
-    withdrawOk.value    = true
+    withdrawOk.value     = true
     withdrawAmount.value = ''
     withdrawAcct.value   = ''
-    await loadBalance()
+    await loadDashboard()
     await loadWithdrawList()
   } catch (e) {
     withdrawError.value = e?.response?.data?.msg || '提交失败，请稍后重试'
@@ -107,7 +102,6 @@ function loadShops() {
   }
   return result.sort((a, b) => Number(b.shopId) - Number(a.shopId))
 }
-
 const shops = ref([])
 
 function deleteShop(shopId) {
@@ -115,10 +109,8 @@ function deleteShop(shopId) {
   shops.value = loadShops()
 }
 
-// 分享带 ref 的裂变链接
 function shareShop(shopId, shopName) {
-  const link = buildShareLink(shopId, userId)
-  shareOrCopy(link, shopName || '我的店铺')
+  shareOrCopy(buildShareLink(shopId, userId), shopName || '我的店铺')
 }
 
 function formatDate(shopId) {
@@ -129,11 +121,14 @@ function formatDate(shopId) {
   } catch (_) { return '' }
 }
 
+// ── 格式化金额 ───────────────────────────────────────────────────────
+const fmt = v => Number(v ?? 0).toFixed(2)
+
 onMounted(() => {
   shops.value = loadShops()
-  loadEarnings()
-  loadBalance()
+  loadDashboard()
   loadWithdrawList()
+  loadPlatformStats()
 })
 </script>
 
@@ -151,99 +146,148 @@ onMounted(() => {
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
         </svg>
       </button>
-      <span class="font-semibold text-sm">我的</span>
+      <span class="font-semibold text-sm flex-1">我的资产</span>
     </header>
 
-    <div class="max-w-[480px] mx-auto px-4 pt-5 pb-24">
+    <div class="max-w-[480px] mx-auto px-4 pt-5 pb-28">
 
-      <!-- ── 佣金收益卡片 ──────────────────────────────────────── -->
-      <section class="mb-6">
+      <!-- ── 平台信任背书 ──────────────────────────────────────────── -->
+      <div v-if="platformStats"
+           class="mb-5 text-center text-xs text-muted">
+        平台已累计向用户分红
+        <span class="text-accent font-bold">
+          €{{ fmt(platformStats.totalDividend) }}
+        </span>
+        · {{ platformStats.totalUsers ?? 0 }} 人参与
+      </div>
+
+      <!-- ── 总收益英雄卡 ──────────────────────────────────────────── -->
+      <section class="mb-4">
         <div class="card p-5 rounded-2xl"
              style="background:linear-gradient(135deg,#0f2d1a,#111)">
 
-          <!-- 总收益 -->
           <div class="flex items-start justify-between mb-4">
             <div>
-              <p class="text-xs text-muted mb-1">我的佣金收益</p>
-              <div v-if="totalEarn === null"
-                   class="h-8 w-24 bg-surface2 rounded animate-pulse" />
-              <p v-else class="text-3xl font-black text-accent">
-                €{{ Number(totalEarn).toFixed(2) }}
+              <p class="text-xs text-muted mb-1">总收益</p>
+              <!-- loading skeleton -->
+              <div v-if="dash === null"
+                   class="h-10 w-32 bg-surface2 rounded animate-pulse" />
+              <p v-else class="text-4xl font-black" style="color:#00FF88">
+                €{{ fmt(dash.totalEarn) }}
               </p>
             </div>
-            <span class="text-xs px-2 py-1 rounded-full font-semibold"
+            <span class="text-xs px-2 py-1 rounded-full font-semibold mt-1"
                   style="background:#00FF8822;color:#00FF88">
               10% 佣金
             </span>
           </div>
 
-          <!-- 分成说明 -->
-          <p class="text-xs text-muted mb-4">
-            每带来一笔订单自动结算 10% 佣金 · 分享越多赚越多
-          </p>
-
-          <!-- 推广链接 -->
-          <div class="bg-bg/60 rounded-xl p-3 mb-4">
-            <p class="text-[10px] text-muted mb-1 uppercase tracking-widest">我的专属推广链接</p>
-            <p class="text-xs text-white/80 font-mono truncate">
-              {{ buildShareLink('YOUR_SHOP_ID', userId) }}
-            </p>
-          </div>
-
-          <!-- 佣金明细（最近5条）-->
-          <div v-if="commissionList.length" class="space-y-2">
-            <p class="text-[10px] text-muted uppercase tracking-widest mb-2">最近佣金</p>
-            <div
-              v-for="item in commissionList.slice(0, 5)"
-              :key="item.orderId"
-              class="flex items-center justify-between text-sm"
-            >
-              <div class="flex items-center gap-2">
-                <span class="w-1.5 h-1.5 rounded-full shrink-0"
-                      :style="{ background: item.status === 'settled' ? '#00FF88' : '#F59E0B' }" />
-                <span class="text-muted text-xs font-mono truncate max-w-[140px]">
-                  {{ item.orderId }}
-                </span>
-              </div>
-              <span class="font-semibold text-xs"
-                    :style="{ color: item.status === 'settled' ? '#00FF88' : '#F59E0B' }">
-                +€{{ Number(item.amount).toFixed(2) }}
-              </span>
+          <!-- 三格资产行 -->
+          <div class="grid grid-cols-3 gap-2">
+            <div class="bg-bg/50 rounded-xl p-3 text-center">
+              <p class="text-[10px] text-muted mb-1">可提现</p>
+              <div v-if="dash === null"
+                   class="h-5 w-12 bg-surface2 rounded animate-pulse mx-auto" />
+              <p v-else class="text-sm font-bold text-white">
+                €{{ fmt(dash.balance) }}
+              </p>
+            </div>
+            <div class="bg-bg/50 rounded-xl p-3 text-center">
+              <p class="text-[10px] text-muted mb-1">提现中</p>
+              <div v-if="dash === null"
+                   class="h-5 w-12 bg-surface2 rounded animate-pulse mx-auto" />
+              <p v-else class="text-sm font-bold text-yellow-400">
+                €{{ fmt(dash.frozen) }}
+              </p>
+            </div>
+            <div class="bg-bg/50 rounded-xl p-3 text-center">
+              <p class="text-[10px] text-muted mb-1">分红</p>
+              <div v-if="dash === null"
+                   class="h-5 w-12 bg-surface2 rounded animate-pulse mx-auto" />
+              <p v-else class="text-sm font-bold" style="color:#00FF88">
+                €{{ fmt(dash.dividendEarn) }}
+              </p>
             </div>
           </div>
 
-          <!-- 无佣金空态 -->
-          <div v-else-if="!earningsError" class="text-center py-3">
-            <p class="text-muted text-xs">还没有佣金记录</p>
-            <p class="text-muted text-xs mt-1">分享你的店铺链接，带来订单即可赚钱 💰</p>
-          </div>
-
         </div>
       </section>
 
-      <!-- ── 排行榜 + 邀请 快捷入口 ──────────────────────────────── -->
-      <section class="mb-6">
+      <!-- ── 邀请 + 份额 ────────────────────────────────────────────── -->
+      <section class="mb-4">
         <div class="grid grid-cols-2 gap-3">
+
+          <!-- 邀请 -->
           <button
-            class="card p-4 text-left active:scale-95 transition-transform duration-100"
-            @click="router.push('/leaderboard')"
-          >
-            <span class="text-2xl mb-2 block">🏆</span>
-            <p class="font-semibold text-sm">收益排行榜</p>
-            <p class="text-muted text-xs mt-0.5">看看你排第几名</p>
-          </button>
-          <button
-            class="card p-4 text-left active:scale-95 transition-transform duration-100"
+            class="card p-4 rounded-2xl text-left active:scale-95 transition-transform duration-100"
             @click="router.push('/invite')"
           >
-            <span class="text-2xl mb-2 block">🎁</span>
-            <p class="font-semibold text-sm">邀请好友</p>
-            <p class="text-xs mt-0.5" style="color:#00FF88">每邀请一人得 €2</p>
+            <p class="text-[10px] text-muted mb-2 uppercase tracking-widest">邀请奖励</p>
+            <div v-if="dash === null"
+                 class="h-7 w-16 bg-surface2 rounded animate-pulse mb-1" />
+            <template v-else>
+              <p class="text-xl font-black" style="color:#00FF88">
+                €{{ fmt(dash.inviteEarn) }}
+              </p>
+              <p class="text-xs text-muted mt-1">已邀请 {{ dash.inviteCount }} 人</p>
+            </template>
+            <p class="text-[10px] mt-2" style="color:#00FF8888">每人 €2 →</p>
+          </button>
+
+          <!-- 份额 -->
+          <button
+            class="card p-4 rounded-2xl text-left active:scale-95 transition-transform duration-100"
+            @click="router.push('/share')"
+          >
+            <p class="text-[10px] text-muted mb-2 uppercase tracking-widest">持有份额</p>
+            <div v-if="dash === null"
+                 class="h-7 w-16 bg-surface2 rounded animate-pulse mb-1" />
+            <template v-else>
+              <p class="text-xl font-black text-white">
+                {{ dash.shareAmount ?? 0 }}
+              </p>
+              <p class="text-xs text-muted mt-1">份额 · 享分红</p>
+            </template>
+            <p class="text-[10px] mt-2 text-muted">购买份额 →</p>
+          </button>
+
+        </div>
+      </section>
+
+      <!-- ── 快捷操作 ───────────────────────────────────────────────── -->
+      <section class="mb-6">
+        <div class="space-y-2">
+          <button
+            class="card w-full flex items-center gap-3 px-4 py-3 rounded-xl
+                   active:scale-[.98] transition-transform duration-100"
+            @click="router.push('/leaderboard')"
+          >
+            <span class="text-lg">🏆</span>
+            <span class="flex-1 text-sm font-semibold text-left">收益排行榜</span>
+            <svg class="h-4 w-4 text-muted" fill="none" viewBox="0 0 24 24"
+                 stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+            </svg>
+          </button>
+          <button
+            class="card w-full flex items-center gap-3 px-4 py-3 rounded-xl
+                   active:scale-[.98] transition-transform duration-100"
+            @click="router.push('/invite')"
+          >
+            <span class="text-lg">🎁</span>
+            <div class="flex-1 text-left">
+              <p class="text-sm font-semibold">邀请好友</p>
+            </div>
+            <span class="text-xs font-bold" style="color:#00FF88">每人 +€2</span>
+            <svg class="h-4 w-4 text-muted" fill="none" viewBox="0 0 24 24"
+                 stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+            </svg>
           </button>
         </div>
       </section>
 
-      <!-- ── 提现系统 ──────────────────────────────────────────────── -->
+      <!-- ── 提现 ──────────────────────────────────────────────────── -->
       <section class="mb-6">
         <h2 class="font-semibold text-sm mb-3">提现</h2>
         <div class="card p-5 rounded-2xl space-y-4">
@@ -252,15 +296,15 @@ onMounted(() => {
           <div class="flex items-center justify-between">
             <div>
               <p class="text-xs text-muted mb-1">可提现余额</p>
-              <div v-if="balance === null"
+              <div v-if="dash === null"
                    class="h-7 w-20 bg-surface2 rounded animate-pulse" />
               <p v-else class="text-2xl font-black text-white">
-                €{{ Number(balance).toFixed(2) }}
+                €{{ fmt(dash.balance) }}
               </p>
             </div>
-            <div v-if="frozen > 0" class="text-right">
+            <div v-if="dash && dash.frozen > 0" class="text-right">
               <p class="text-xs text-muted mb-1">提现中</p>
-              <p class="text-sm text-yellow-400 font-semibold">€{{ Number(frozen).toFixed(2) }}</p>
+              <p class="text-sm text-yellow-400 font-semibold">€{{ fmt(dash.frozen) }}</p>
             </div>
           </div>
 
@@ -270,10 +314,7 @@ onMounted(() => {
               <label class="text-xs text-muted block mb-1">提现金额（最低 €10）</label>
               <input
                 v-model="withdrawAmount"
-                type="number"
-                min="10"
-                step="1"
-                placeholder="0.00"
+                type="number" min="10" step="1" placeholder="0.00"
                 class="w-full h-11 rounded-xl px-3 text-sm bg-surface2
                        border border-border text-white placeholder:text-muted
                        focus:outline-none focus:border-accent"
@@ -283,18 +324,14 @@ onMounted(() => {
               <label class="text-xs text-muted block mb-1">收款账号（PayPal / 银行）</label>
               <input
                 v-model="withdrawAcct"
-                type="text"
-                placeholder="paypal:your@email.com"
+                type="text" placeholder="paypal:your@email.com"
                 class="w-full h-11 rounded-xl px-3 text-sm bg-surface2
                        border border-border text-white placeholder:text-muted
                        focus:outline-none focus:border-accent"
               />
             </div>
-
-            <!-- 错误 / 成功提示 -->
             <p v-if="withdrawError" class="text-xs text-danger">{{ withdrawError }}</p>
             <p v-if="withdrawOk"    class="text-xs text-accent">✔ 提现申请已提交，1-3 个工作日处理</p>
-
             <button
               :disabled="withdrawing"
               class="w-full h-11 rounded-full font-bold text-sm
@@ -311,20 +348,17 @@ onMounted(() => {
           <div v-if="withdrawList.length" class="border-t border-border pt-4 space-y-2">
             <p class="text-[10px] text-muted uppercase tracking-widest mb-2">提现记录</p>
             <div
-              v-for="w in withdrawList.slice(0, 5)"
-              :key="w.id"
+              v-for="w in withdrawList.slice(0, 5)" :key="w.id"
               class="flex items-center justify-between text-sm"
             >
               <div>
-                <p class="text-xs font-mono text-muted truncate max-w-[160px]">
-                  {{ w.account }}
-                </p>
+                <p class="text-xs font-mono text-muted truncate max-w-[160px]">{{ w.account }}</p>
                 <p class="text-[10px] text-muted/60">
                   {{ w.createdAt ? new Date(w.createdAt).toLocaleDateString('zh-CN') : '' }}
                 </p>
               </div>
               <div class="text-right">
-                <p class="font-semibold text-xs">€{{ Number(w.amount).toFixed(2) }}</p>
+                <p class="font-semibold text-xs">€{{ fmt(w.amount) }}</p>
                 <p class="text-[10px]"
                    :style="{
                      color: w.status === 'success' ? '#00FF88'
@@ -342,14 +376,13 @@ onMounted(() => {
         </div>
       </section>
 
-      <!-- ── 我的店铺 ──────────────────────────────────────────── -->
+      <!-- ── 我的店铺 ──────────────────────────────────────────────── -->
       <section class="mb-8">
         <div class="flex items-center justify-between mb-3">
           <h2 class="font-semibold text-sm">我的店铺</h2>
           <span class="text-muted text-xs">{{ shops.length }} 家</span>
         </div>
 
-        <!-- 空状态 -->
         <div v-if="!shops.length" class="card p-8 text-center">
           <p class="text-3xl mb-3">🏪</p>
           <p class="text-muted text-sm mb-4">还没有店铺</p>
@@ -361,14 +394,8 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- 店铺列表 -->
         <div v-else class="space-y-3">
-          <div
-            v-for="shop in shops"
-            :key="shop.shopId"
-            class="card overflow-hidden"
-          >
-            <!-- 店铺头部 -->
+          <div v-for="shop in shops" :key="shop.shopId" class="card overflow-hidden">
             <div
               class="flex items-center gap-3 p-3 cursor-pointer active:opacity-80 transition-opacity"
               :style="{ background: shop.gradient || '#1A1A1A' }"
@@ -390,34 +417,26 @@ onMounted(() => {
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
               </svg>
             </div>
-
-            <!-- 操作栏 -->
             <div class="flex items-center gap-2 px-3 py-2.5 border-t border-border">
               <span class="text-muted text-xs flex-1 truncate">/shop/{{ shop.shopId }}</span>
-              <!-- 分享赚钱（带 ref）-->
               <button
                 class="text-xs font-semibold px-3 py-1.5 rounded-full
                        active:scale-95 transition-transform duration-100"
                 style="background:#00FF8820;color:#00FF88;border:1px solid #00FF8840"
                 @click="shareShop(shop.shopId, shop.name)"
-              >
-                分享赚钱
-              </button>
-              <!-- 删除 -->
+              >分享赚钱</button>
               <button
                 class="text-xs font-semibold px-3 py-1.5 rounded-full
                        bg-danger/10 text-danger border border-danger/20
                        active:scale-95 transition-transform duration-100"
                 @click="deleteShop(shop.shopId)"
-              >
-                删除
-              </button>
+              >删除</button>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- ── 新建入口 ──────────────────────────────────────────── -->
+      <!-- ── 新建入口 ──────────────────────────────────────────────── -->
       <section class="mb-8">
         <h2 class="font-semibold text-sm mb-3">新建</h2>
         <div class="grid grid-cols-2 gap-3">
@@ -440,12 +459,12 @@ onMounted(() => {
         </div>
       </section>
 
-      <!-- ── 用户 ID（底部小字，方便调试）──────────────────────── -->
+      <!-- 用户 ID（调试用）-->
       <p class="text-center text-muted text-[10px] font-mono break-all">
         ID: {{ userId }}
       </p>
 
-    </div>
+    </div><!-- /max-w -->
 
     <!-- 底部导航 -->
     <nav class="fixed bottom-0 left-0 right-0 z-20
@@ -481,7 +500,6 @@ onMounted(() => {
         </svg>
         <span class="text-[10px] font-semibold">模板</span>
       </button>
-      <!-- 排行榜 -->
       <button class="flex flex-col items-center gap-0.5 px-3 py-1 text-muted
                      active:text-white transition-colors"
               @click="router.push('/leaderboard')">
