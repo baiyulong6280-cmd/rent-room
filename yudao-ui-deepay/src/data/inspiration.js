@@ -1,18 +1,8 @@
 /**
  * inspiration.js — 时装灵感库种子数据
- *
- * 来源分级：
- *   fashion_week  — 时装周秀场（Paris / Milan / New York）
- *   brand_lookbook — 品牌 Lookbook / 新品上市（ZARA / COS / ARKET / Acne Studios）
- *   editorial      — 高端电商 / 杂志大片（SSENSE / Farfetch）
- *
- * 使用 Unsplash 公开授权图片作为占位素材（生产环境替换为真实采集图）
- * Unsplash 格式：https://images.unsplash.com/photo-{id}?w=600&q=80&fit=crop
  */
 
-/** @typedef {{ id:string, image:string, source:string, brand:string, style:string, type:string, season?:string, desc?:string }} InspirationItem */
-
-/** @type {InspirationItem[]} */
+/** @type {import('./inspiration').InspirationItem[]} */
 export const inspirationItems = [
 
   // ── 时装周 · Paris ──────────────────────────────────────────────────
@@ -25,6 +15,7 @@ export const inspirationItems = [
     type:   'coat',
     season: 'AW 2024',
     desc:   '极简黑白大衣，结构感强',
+    score: 88, usable: true, layer: 'design', tags: ['clean','minimal'],
   },
   {
     id: 'fw_paris_002',
@@ -35,6 +26,7 @@ export const inspirationItems = [
     type:   'dress',
     season: 'SS 2024',
     desc:   '廓形连衣裙，强调剪裁',
+    score: 85, usable: true, layer: 'design', tags: ['avant','sculptural'],
   },
   {
     id: 'fw_paris_003',
@@ -45,6 +37,7 @@ export const inspirationItems = [
     type:   'suit',
     season: 'AW 2024',
     desc:   '高端西装套装，精致细节',
+    score: 91, usable: true, layer: 'design', tags: ['luxury','premium'],
   },
   {
     id: 'fw_paris_004',
@@ -55,6 +48,7 @@ export const inspirationItems = [
     type:   'trench',
     season: 'SS 2025',
     desc:   '风衣廓形，米色经典',
+    score: 82, usable: true, layer: 'design', tags: ['clean','minimal'],
   },
 
   // ── 时装周 · Milan ──────────────────────────────────────────────────
@@ -67,6 +61,7 @@ export const inspirationItems = [
     type:   'gown',
     season: 'AW 2024',
     desc:   '米兰秀台礼服，奢华面料',
+    score: 90, usable: true, layer: 'design', tags: ['luxury','premium'],
   },
   {
     id: 'fw_milan_002',
@@ -77,6 +72,7 @@ export const inspirationItems = [
     type:   'jacket',
     season: 'SS 2024',
     desc:   '运动夹克，街头奢华融合',
+    score: 84, usable: true, layer: 'design', tags: ['trendy','bold'],
   },
   {
     id: 'fw_milan_003',
@@ -87,6 +83,7 @@ export const inspirationItems = [
     type:   'blouse',
     season: 'SS 2025',
     desc:   '精致衬衫，意式优雅',
+    score: 87, usable: true, layer: 'design', tags: ['elegant','soft'],
   },
 
   // ── 时装周 · New York ───────────────────────────────────────────────
@@ -99,6 +96,7 @@ export const inspirationItems = [
     type:   'coat',
     season: 'AW 2024',
     desc:   '纽约极简主义大衣',
+    score: 83, usable: true, layer: 'design', tags: ['clean','minimal'],
   },
   {
     id: 'fw_ny_002',
@@ -109,6 +107,7 @@ export const inspirationItems = [
     type:   'set',
     season: 'SS 2024',
     desc:   '运动时尚套装，都市风',
+    score: 86, usable: true, layer: 'design', tags: ['trendy','bold'],
   },
   {
     id: 'fw_ny_003',
@@ -119,6 +118,7 @@ export const inspirationItems = [
     type:   'dress',
     season: 'SS 2025',
     desc:   '大胆印花连衣裙',
+    score: 89, usable: true, layer: 'design', tags: ['trendy','bold'],
   },
 
   // ── 品牌 · COS ──────────────────────────────────────────────────────
@@ -131,6 +131,7 @@ export const inspirationItems = [
     type:   'coat',
     season: 'AW 2024',
     desc:   'COS 极简羊毛大衣',
+    score: 80, usable: true, layer: 'commercial', tags: ['clean','minimal'],
   },
   {
     id: 'brand_cos_002',
@@ -141,6 +142,7 @@ export const inspirationItems = [
     type:   'dress',
     season: 'SS 2024',
     desc:   'COS 结构感连衣裙',
+    score: 77, usable: true, layer: 'commercial', tags: ['clean','minimal'],
   },
   {
     id: 'brand_cos_003',
@@ -151,6 +153,7 @@ export const inspirationItems = [
     type:   'trousers',
     season: 'SS 2025',
     desc:   'COS 宽腿剪裁长裤',
+    score: 75, usable: true, layer: 'commercial', tags: ['clean','minimal'],
   },
 
   // ── 品牌 · ARKET ─────────────────────────────────────────────────────
@@ -163,6 +166,7 @@ export const inspirationItems = [
     type:   'shirt',
     season: 'SS 2024',
     desc:   'ARKET 纯棉衬衫，极简主义',
+    score: 82, usable: true, layer: 'commercial', tags: ['clean','minimal'],
   },
   {
     id: 'brand_arket_002',
@@ -173,6 +177,7 @@ export const inspirationItems = [
     type:   'knitwear',
     season: 'AW 2024',
     desc:   'ARKET 精制针织，北欧风格',
+    score: 78, usable: true, layer: 'commercial', tags: ['clean','minimal'],
   },
 
   // ── 品牌 · Acne Studios ─────────────────────────────────────────────
@@ -185,6 +190,7 @@ export const inspirationItems = [
     type:   'coat',
     season: 'AW 2024',
     desc:   'Acne Studios 标志性廓形大衣',
+    score: 88, usable: true, layer: 'commercial', tags: ['clean','minimal'],
   },
   {
     id: 'brand_acne_002',
@@ -195,6 +201,7 @@ export const inspirationItems = [
     type:   'jacket',
     season: 'SS 2025',
     desc:   'Acne Studios 前卫夹克',
+    score: 85, usable: true, layer: 'commercial', tags: ['trendy','bold'],
   },
 
   // ── 品牌 · ZARA ──────────────────────────────────────────────────────
@@ -207,6 +214,7 @@ export const inspirationItems = [
     type:   'coat',
     season: 'AW 2024',
     desc:   'ZARA 快时尚廓形大衣',
+    score: 76, usable: true, layer: 'commercial', tags: ['trendy','bold'],
   },
   {
     id: 'brand_zara_002',
@@ -217,6 +225,7 @@ export const inspirationItems = [
     type:   'dress',
     season: 'SS 2024',
     desc:   'ZARA 优雅连衣裙，可落地',
+    score: 79, usable: true, layer: 'commercial', tags: ['elegant','soft'],
   },
 
   // ── 高端电商 · SSENSE / Farfetch ────────────────────────────────────
@@ -229,6 +238,7 @@ export const inspirationItems = [
     type:   'coat',
     season: 'AW 2024',
     desc:   '设计师精选，奢华大衣',
+    score: 84, usable: true, layer: 'inspiration', tags: ['luxury','premium'],
   },
   {
     id: 'ed_ssense_002',
@@ -239,6 +249,7 @@ export const inspirationItems = [
     type:   'dress',
     season: 'SS 2024',
     desc:   'SSENSE 编辑精选极简连衣裙',
+    score: 78, usable: true, layer: 'inspiration', tags: ['clean','minimal'],
   },
   {
     id: 'ed_farfetch_001',
@@ -249,6 +260,7 @@ export const inspirationItems = [
     type:   'suit',
     season: 'SS 2025',
     desc:   'Farfetch 精品奢华西装',
+    score: 82, usable: true, layer: 'inspiration', tags: ['luxury','premium'],
   },
   {
     id: 'ed_farfetch_002',
@@ -259,6 +271,7 @@ export const inspirationItems = [
     type:   'jacket',
     season: 'AW 2024',
     desc:   '街头潮牌夹克，高端配色',
+    score: 70, usable: true, layer: 'inspiration', tags: ['trendy','bold'],
   },
 ]
 
@@ -286,3 +299,20 @@ export const SOURCE_LABELS = {
   brand_lookbook: '品牌新品',
   editorial:      '大片',
 }
+
+export const DESIGN_STYLES = [
+  { key: '',        label: '全部' },
+  { key: 'minimal', label: '极简' },
+  { key: 'modern',  label: '现代' },
+  { key: 'avant',   label: '前卫' },
+  { key: 'classic', label: '基础' },
+  { key: 'luxury',  label: '高端' },
+]
+
+export const LAYER_LABELS = {
+  design:      '秀场',
+  commercial:  '品牌',
+  inspiration: '灵感',
+}
+
+export const SCORE_THRESHOLD = 70  // AI only uses images above this

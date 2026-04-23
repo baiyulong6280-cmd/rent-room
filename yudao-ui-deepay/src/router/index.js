@@ -40,7 +40,10 @@ const routes = [
   // ── 份额 ──────────────────────────────────────
   { path: '/share',        component: () => import('@/pages/Share.vue'), meta: { title: '购买份额', requiresAuth: true } },
 
-  // ── 404 ───────────────────────────────────────
+  { path: '/ai/season',   component: () => import('@/pages/AiSeason.vue'),  meta: { title: '整季系列生成' } },
+  { path: '/ai/techpack', component: () => import('@/pages/TechPack.vue'),  meta: { title: '设计稿' } },
+
+    // ── 404 ───────────────────────────────────────
   { path: '/:pathMatch(.*)*', component: () => import('@/pages/NotFound.vue'), meta: { title: '页面不存在' } },
 ]
 
