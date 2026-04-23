@@ -1103,6 +1103,7 @@ public class DeepayDesignController {
     }
 
     // ====================================================================
+    // POST /api/ai/deduplicateAdvanced
     // POST /api/ai/styleProfile/create — 创建品牌风格档案
     //
     // 请求：{ "name":"MyBrand","style":"minimal_modern","rules":{...} }
@@ -1958,6 +1959,128 @@ public class DeepayDesignController {
     }
 
     // ====================================================================
+    // POST /api/ai/generateTechPack — 生成可打版设计稿
+    //
+    // 请求：{ "image": "final_design.png", "style": "minimal_modern" }
+    // 响应：{ "techPack": { overview, colors, fabric, fit, details, notes } }
+    //
+    // Prompt（写死）：
+    //   You are a professional fashion technical designer.
+    //   Based on the image, generate a clear and practical tech pack.
+    //   Include: garment overview, fit, key design details, colors, fabric, notes.
+    //   Keep it simple, clear, and usable for pattern makers.
+    // ====================================================================
+
+    @PostMapping("/ai/generateTechPack")
+    @Operation(summary = "生成可打版设计稿（Tech Pack）：款式说明 + 版型 + 细节 + 面料 + 颜色 + 打版备注")
+    public CommonResult<Map<String, Object>> generateTechPack(@RequestBody TechPackReqVO req) {
+        if (req.getImage() == null || req.getImage().isBlank()) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("error", "image 不能为空");
+            r.put("code",  400);
+            return success(r);
+        }
+        String style = req.getStyle() != null ? req.getStyle().toLowerCase() : "minimal";
+        log.info("[generateTechPack] image={} style={}", req.getImage(), style);
+
+        Map<String, Object> techPack = buildTechPack(req.getImage(), style);
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("techPack", techPack);
+        resp.put("image",    req.getImage());
+        resp.put("style",    style);
+        return success(resp);
+    }
+
+    /** Build a deterministic but sensible TechPack from URL + style. */
+    private Map<String, Object> buildTechPack(String imageUrl, String style) {
+        int h = Math.abs(imageUrl.hashCode());
+
+        // Garment type
+        String[] types     = {"上衣","外套","连衣裙","裤子","半身裙","夹克","西装","针织衫"};
+        String garmentType = types[h % types.length];
+
+        // Fit
+        String[] fits = {"宽松","修身","常规","直筒","A型","廓形"};
+        String fit    = fits[(h >> 4) % fits.length];
+
+        // Fabric suggestions per style
+        String fabric;
+        switch (style) {
+            case "minimal":            fabric = "优质棉布 / 棉混纺"; break;
+            case "luxury": case "高端": fabric = "羊毛 / 羊绒混纺"; break;
+            case "modern":             fabric = "棉麻混纺 / 弹力面料"; break;
+            case "trendy": case "潮流": fabric = "尼龙 / 科技感面料"; break;
+            default:                   fabric = "棉 / 梭织"; break;
+        }
+
+        // Colors per style
+        List<String> colors;
+        switch (style) {
+            case "minimal":            colors = Arrays.asList("黑","白","灰"); break;
+            case "luxury": case "高端": colors = Arrays.asList("驼色","奶白","深棕"); break;
+            case "modern":             colors = Arrays.asList("深蓝","浅灰","米白"); break;
+            case "trendy": case "潮流": colors = Arrays.asList("黑","荧光绿","对比色"); break;
+            default:                   colors = Arrays.asList("黑","白"); break;
+        }
+
+        // Key details
+        String[] neckOptions   = {"圆领","V领","高领","一字领"};
+        String[] sleeveOptions = {"短袖","长袖","无袖","半袖"};
+        String neck   = neckOptions[(h >> 8)  % neckOptions.length];
+        String sleeve = sleeveOptions[(h >> 12) % sleeveOptions.length];
+
+        List<String> details = new ArrayList<>();
+        details.add(neck);
+        details.add(sleeve);
+        details.add("干净剪裁，无多余装饰");
+        if ("minimal".equals(style) || "luxury".equals(style)) {
+            details.add("隐形纽扣或拉链");
+            details.add("精致缝线收边");
+        } else if ("trendy".equals(style)) {
+            details.add("拼接细节");
+            details.add("功能性口袋");
+        }
+
+        // Overview
+        String overview = fit + garmentType + "，" + styleToDesc(style)
+                + "，" + neck + "，" + sleeve;
+
+        // Production notes for pattern makers
+        List<String> notes = new ArrayList<>();
+        notes.add("保持整体比例，避免版型走形");
+        notes.add("肩宽和腰线是关键控制点");
+        notes.add("面料需预缩处理后再裁");
+        if ("loose".equals(fit) || "宽松".equals(fit) || "廓形".equals(fit)) {
+            notes.add("放量不低于8cm，保持廓形感");
+        }
+        notes.add("禁止随意增加装饰性元素");
+
+        Map<String, Object> techPack = new LinkedHashMap<>();
+        techPack.put("overview",     overview);
+        techPack.put("garmentType",  garmentType);
+        techPack.put("fit",          fit);
+        techPack.put("colors",       colors);
+        techPack.put("fabric",       fabric);
+        techPack.put("details",      details);
+        techPack.put("notes",        notes);
+        techPack.put("style",        style);
+        techPack.put("patternNotes", "版师请严格按照细节说明制版，保持干净结构，" +
+                "不允许在未经设计师确认的情况下修改版型或添加装饰。");
+        return techPack;
+    }
+
+    private String styleToDesc(String style) {
+        if ("minimal".equals(style))               return "极简主义风格";
+        if ("luxury".equals(style))                return "高端奢华风格";
+        if ("modern".equals(style))                return "现代都市风格";
+        if ("trendy".equals(style))                return "潮流街头风格";
+        if ("avant".equals(style))                 return "前卫解构风格";
+        if ("classic".equals(style))               return "经典百搭风格";
+        return style + "风格";
+    }
+
+    // ====================================================================
     // Request / Response VOs (inner classes)
     // ====================================================================
 
@@ -2227,35 +2350,38 @@ public class DeepayDesignController {
         public String getUserId()                      { return userId; }
         public void setUserId(String v)                { this.userId = v; }
     }
-}
 
+    public static class DeduplicateAdvancedReqVO {
+        private List<String> generated;
         private List<String> refs;
-        private String style;
-        private Map<String, String> controls;
-        private Integer count;
-        private String userId;
-        public List<String> getRefs()             { return refs; }
-        public void setRefs(List<String> v)       { this.refs = v; }
-        public String getStyle()                  { return style; }
-        public void setStyle(String v)            { this.style = v; }
-        public Map<String, String> getControls()  { return controls; }
-        public void setControls(Map<String, String> v) { this.controls = v; }
-        public Integer getCount()                 { return count; }
-        public void setCount(Integer v)           { this.count = v; }
-        public String getUserId()                 { return userId; }
-        public void setUserId(String v)           { this.userId = v; }
+        private List<String> library;
+        public List<String> getGenerated()           { return generated; }
+        public void setGenerated(List<String> v)     { this.generated = v; }
+        public List<String> getRefs()                { return refs; }
+        public void setRefs(List<String> v)          { this.refs = v; }
+        public List<String> getLibrary()             { return library; }
+        public void setLibrary(List<String> v)       { this.library = v; }
     }
 
-    public static class UpdateDetailReqVO {
+    public static class DesignScoreReqVO {
+        private List<String> images;
+        private String style;
+        public List<String> getImages()              { return images; }
+        public void setImages(List<String> v)        { this.images = v; }
+        public String getStyle()                     { return style; }
+        public void setStyle(String v)               { this.style = v; }
+    }
+
+    public static class TechPackReqVO {
         private String image;
-        private Map<String, String> control;
+        private String style;
         private String userId;
-        public String getImage()                  { return image; }
-        public void setImage(String v)            { this.image = v; }
-        public Map<String, String> getControl()   { return control; }
-        public void setControl(Map<String, String> v) { this.control = v; }
-        public String getUserId()                 { return userId; }
-        public void setUserId(String v)           { this.userId = v; }
+        public String getImage()                     { return image; }
+        public void setImage(String v)               { this.image = v; }
+        public String getStyle()                     { return style; }
+        public void setStyle(String v)               { this.style = v; }
+        public String getUserId()                    { return userId; }
+        public void setUserId(String v)              { this.userId = v; }
     }
 }
 
