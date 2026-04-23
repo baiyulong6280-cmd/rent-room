@@ -155,10 +155,9 @@ public class FluxServiceImpl implements FluxService {
             headers.setBearerAuth(apiKey);
         }
 
-        Map<String, Object> body = Map.of(
-                "prompt", prompt,
-                "num_images", 3
-        );
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("prompt", prompt);
+        body.put("num_images", 3);
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
         Map<String, Object> response = restTemplate.postForObject(apiUrl, request, Map.class);
@@ -202,10 +201,9 @@ public class FluxServiceImpl implements FluxService {
             headers.setBearerAuth(apiKey);
         }
 
-        Map<String, Object> body = Map.of(
-                "prompt", prompt,
-                "num_images", n
-        );
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("prompt", prompt);
+        body.put("num_images", n);
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
         Map<String, Object> response = restTemplate.postForObject(apiUrl, request, Map.class);

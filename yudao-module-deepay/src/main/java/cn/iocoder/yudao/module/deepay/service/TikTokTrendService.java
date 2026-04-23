@@ -24,7 +24,7 @@ public class TikTokTrendService {
     private String apiKey;
 
     public List<TrendItem> fetch(String category) {
-        if (apiUrl != null && !apiUrl.isBlank()) {
+        if (apiUrl != null && !apiUrl.trim().isEmpty()) {
             try {
                 return fetchFromApi(category);
             } catch (Exception e) {
