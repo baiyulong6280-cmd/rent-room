@@ -344,6 +344,115 @@ public class DeepayDesignController {
     }
 
     // ====================================================================
+    // POST /api/ai/generateCollection — 系列生成（带细节控制）
+    //
+    // 请求：{
+    //   "refs": ["url1","url2"],
+    //   "style": "minimal_modern",
+    //   "controls": { "neck":"round","sleeve":"short","length":"regular","fit":"loose" },
+    //   "count": 6
+    // }
+    // 响应：{
+    //   "images": ["img1",…,"img6"],
+    //   "collectionName": "Collection A",
+    //   "controls": { … },
+    //   "style": "minimal_modern"
+    // }
+    //
+    // Prompt 规则（写死）：
+    //   - 强制 collection 一致性（同色系 + 同风格语言）
+    //   - 细节控制必须写进 prompt（neck/sleeve/length/fit）
+    //   - Image 1 → silhouette; Image 2 → style direction
+    // ====================================================================
+
+    @PostMapping("/ai/generateCollection")
+    @Operation(summary = "AI 系列生成：生成同风格统一系列（带细节控制）")
+    public CommonResult<Map<String, Object>> generateCollection(
+            @RequestBody GenerateCollectionReqVO req) {
+        String userId = req.getUserId() != null ? req.getUserId() : "anonymous";
+        int count = (req.getCount() != null && req.getCount() >= 4) ? Math.min(req.getCount(), 8) : 6;
+        String style = req.getStyle() != null ? req.getStyle().toLowerCase() : "minimal";
+
+        log.info("[generateCollection] userId={} style={} count={} controls={}", userId, style, count, req.getControls());
+
+        if (!rateLimitService.allow("collection:" + userId)) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("error", "请求过于频繁，请稍后再试");
+            r.put("code",  429);
+            return success(r);
+        }
+
+        Map<String, String> controls = req.getControls() != null ? req.getControls() : Collections.emptyMap();
+        String prompt = buildCollectionPrompt(style, controls, req.getRefs());
+        log.info("[generateCollection] prompt={}", prompt);
+
+        List<String> images;
+        try {
+            images = fluxService.generateImages(prompt, count);
+        } catch (Exception e) {
+            log.warn("[generateCollection] 生成失败，重试", e);
+            images = fluxService.generateImages(prompt, count);
+        }
+
+        // Ensure at least 4
+        if (images.size() < 4) {
+            List<String> padded = new java.util.ArrayList<>(images);
+            while (padded.size() < count) padded.addAll(images);
+            images = padded.subList(0, Math.min(count, padded.size()));
+        }
+
+        // Generate collection name
+        String collectionName = buildCollectionName(style, controls);
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("images",         images);
+        resp.put("count",          images.size());
+        resp.put("collectionName", collectionName);
+        resp.put("style",          style);
+        resp.put("controls",       controls);
+        return success(resp);
+    }
+
+    // ====================================================================
+    // POST /api/ai/updateDetail — 局部细节修改
+    //
+    // 请求：{ "image": "xxx.png", "control": { "sleeve": "long" } }
+    // 响应：{ "image": "updated.png", "control": { "sleeve": "long" } }
+    //
+    // 规则：只改指定细节，其他结构保持原样
+    // ====================================================================
+
+    @PostMapping("/ai/updateDetail")
+    @Operation(summary = "AI 局部细节修改：只改指定控制项，其他不变")
+    public CommonResult<Map<String, Object>> updateDetail(@RequestBody UpdateDetailReqVO req) {
+        if (req.getImage() == null || req.getImage().isBlank()) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("error", "image 不能为空");
+            r.put("code",  400);
+            return success(r);
+        }
+        if (req.getControl() == null || req.getControl().isEmpty()) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("error", "control 不能为空");
+            r.put("code",  400);
+            return success(r);
+        }
+
+        log.info("[updateDetail] image={} control={}", req.getImage(), req.getControl());
+
+        String prompt = buildUpdateDetailPrompt(req.getControl());
+        log.info("[updateDetail] prompt={}", prompt);
+
+        List<String> generated = fluxService.generateImages(prompt, 1);
+        String resultImage = (generated != null && !generated.isEmpty()) ? generated.get(0) : req.getImage();
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("image",   resultImage);
+        resp.put("control", req.getControl());
+        return success(resp);
+    }
+
+    // ====================================================================
     // POST /api/ai/redesign — AI 改款：参考图 → 6 张新款
     //
     // 请求：{ "images": ["url1","url2"], "style": "minimal",
@@ -1098,6 +1207,114 @@ public class DeepayDesignController {
                 + " Generate 3 polished refinements of this design.";
     }
 
+    // ── Design Controls lookup tables ────────────────────────────────────
+
+    /** Control field → value → English prompt description. */
+    private static final Map<String, Map<String, String>> CONTROL_PROMPTS;
+    static {
+        CONTROL_PROMPTS = new LinkedHashMap<>();
+
+        Map<String, String> neck = new LinkedHashMap<>();
+        neck.put("round",     "round neckline");
+        neck.put("v-neck",    "V-neckline, open front");
+        neck.put("high-neck", "high turtleneck collar");
+        CONTROL_PROMPTS.put("neck", neck);
+
+        Map<String, String> sleeve = new LinkedHashMap<>();
+        sleeve.put("short",     "short sleeves, above elbow");
+        sleeve.put("long",      "full-length long sleeves");
+        sleeve.put("sleeveless","sleeveless, no sleeves");
+        CONTROL_PROMPTS.put("sleeve", sleeve);
+
+        Map<String, String> length = new LinkedHashMap<>();
+        length.put("short",   "cropped length, above hip");
+        length.put("regular", "regular length, hip to mid-thigh");
+        length.put("long",    "long length, below knee or maxi");
+        CONTROL_PROMPTS.put("length", length);
+
+        Map<String, String> fit = new LinkedHashMap<>();
+        fit.put("slim",    "slim fit, close to body");
+        fit.put("regular", "regular fit, comfortable silhouette");
+        fit.put("loose",   "oversized loose fit, relaxed silhouette");
+        CONTROL_PROMPTS.put("fit", fit);
+    }
+
+    /** Translate a controls map into English prompt fragments. */
+    private String controlsToPrompt(Map<String, String> controls) {
+        if (controls == null || controls.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> entry : controls.entrySet()) {
+            String field  = entry.getKey().toLowerCase();
+            String value  = entry.getValue().toLowerCase();
+            Map<String, String> lookup = CONTROL_PROMPTS.get(field);
+            if (lookup != null) {
+                String desc = lookup.getOrDefault(value, value);
+                sb.append(field).append(": ").append(desc).append(". ");
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    /**
+     * Build the collection generation prompt.
+     * All 6 images must be a UNIFIED COLLECTION — same palette + design language.
+     */
+    private String buildCollectionPrompt(String style, Map<String, String> controls, List<String> refs) {
+        String styleDesc  = STYLE_PROMPT_MAP.getOrDefault(style, STYLE_PROMPT_MAP.get("minimal"));
+        String controlDesc = controlsToPrompt(controls);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("You are a professional fashion designer. ");
+        sb.append("Create a cohesive clothing collection. ");
+        sb.append(styleDesc).append(". ");
+        sb.append("Requirements: ");
+        sb.append("- All designs must belong to ONE consistent collection. ");
+        sb.append("- Maintain same color palette and design language across all pieces. ");
+        sb.append("- Keep clean and minimal aesthetic. ");
+        sb.append("- Avoid clutter, busy patterns and unnecessary elements. ");
+        sb.append("- Clean studio background. No logo or copyright. ");
+        if (!controlDesc.isEmpty()) {
+            sb.append("Design controls (MUST follow exactly): ").append(controlDesc).append(" ");
+        }
+        if (refs != null && refs.size() >= 2) {
+            sb.append("Image 1 determines silhouette and structure. ");
+            sb.append("Image 2 determines style direction and mood. ");
+            if (refs.size() >= 3) sb.append("Image 3 provides detail accents. ");
+        } else if (refs != null && refs.size() == 1) {
+            sb.append("Reference image provides overall silhouette. ");
+        }
+        sb.append("Output: Generate 6 design variations as a UNIFIED COLLECTION, not 6 random designs.");
+        return sb.toString();
+    }
+
+    /** Build prompt for patching a single design control, keeping everything else unchanged. */
+    private String buildUpdateDetailPrompt(Map<String, String> control) {
+        String controlDesc = controlsToPrompt(control);
+        return "Fashion designer making ONE targeted design adjustment. "
+                + "ONLY change: " + controlDesc + " "
+                + "Keep EVERYTHING else exactly the same: "
+                + "silhouette, color palette, fabric, overall style. "
+                + "The result must look like the same garment with only the specified detail changed. "
+                + "Clean studio background. No logo. Premium fashion photography.";
+    }
+
+    /** Generate a display name for the collection. */
+    private String buildCollectionName(String style, Map<String, String> controls) {
+        String styleLabel;
+        if ("minimal".equals(style) || "极简".equals(style)) styleLabel = "Minimal";
+        else if ("luxury".equals(style) || "高端".equals(style) || "高级".equals(style)) styleLabel = "Luxe";
+        else if ("modern".equals(style) || "现代".equals(style)) styleLabel = "Modern";
+        else if ("trendy".equals(style) || "潮流".equals(style)) styleLabel = "Trend";
+        else styleLabel = "Collection";
+
+        String fitLabel = controls != null ? controls.getOrDefault("fit", "") : "";
+        if ("loose".equals(fitLabel)) fitLabel = " Vol.";
+        else if ("slim".equals(fitLabel)) fitLabel = " Slim";
+        else fitLabel = "";
+
+        return styleLabel + fitLabel + " Collection";
+    }
+
     // ====================================================================
     // Request / Response VOs (inner classes)
     // ====================================================================
@@ -1262,6 +1479,36 @@ public class DeepayDesignController {
         public void setReference(List<String> v) { this.reference = v; }
         public Double getThreshold()         { return threshold; }
         public void setThreshold(Double v)   { this.threshold = v; }
+    }
+
+    public static class GenerateCollectionReqVO {
+        private List<String> refs;
+        private String style;
+        private Map<String, String> controls;
+        private Integer count;
+        private String userId;
+        public List<String> getRefs()             { return refs; }
+        public void setRefs(List<String> v)       { this.refs = v; }
+        public String getStyle()                  { return style; }
+        public void setStyle(String v)            { this.style = v; }
+        public Map<String, String> getControls()  { return controls; }
+        public void setControls(Map<String, String> v) { this.controls = v; }
+        public Integer getCount()                 { return count; }
+        public void setCount(Integer v)           { this.count = v; }
+        public String getUserId()                 { return userId; }
+        public void setUserId(String v)           { this.userId = v; }
+    }
+
+    public static class UpdateDetailReqVO {
+        private String image;
+        private Map<String, String> control;
+        private String userId;
+        public String getImage()                  { return image; }
+        public void setImage(String v)            { this.image = v; }
+        public Map<String, String> getControl()   { return control; }
+        public void setControl(Map<String, String> v) { this.control = v; }
+        public String getUserId()                 { return userId; }
+        public void setUserId(String v)           { this.userId = v; }
     }
 }
 

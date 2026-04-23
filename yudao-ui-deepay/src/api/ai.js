@@ -103,6 +103,39 @@ export function deduplicateImages(params) {
 }
 
 /**
+ * AI 系列生成：生成同风格统一系列（带细节控制）
+ * @param {{
+ *   refs: string[],
+ *   style: string,
+ *   controls?: { neck?: string, sleeve?: string, length?: string, fit?: string },
+ *   count?: number,
+ *   userId?: string,
+ * }} params
+ * @returns {Promise<{ images: string[], collectionName: string, style: string, controls: object }>}
+ */
+export function generateCollection(params) {
+  return http.post('/api/ai/generateCollection', params)
+}
+
+/**
+ * AI 局部细节修改：只改指定控制项，其他不变
+ * @param {{ image: string, control: { neck?:string, sleeve?:string, length?:string, fit?:string }, userId?: string }} params
+ * @returns {Promise<{ image: string, control: object }>}
+ */
+export function updateDetail(params) {
+  return http.post('/api/ai/updateDetail', params)
+}
+
+/**
+ * AI 改色：只改颜色方案，结构不变
+ * @param {{ image: string, colorScheme: string, userId?: string }} params
+ * @returns {Promise<{ image: string, colorScheme: string, colorLabel: string }>}
+ */
+export function recolorImage(params) {
+  return http.post('/api/ai/recolor', params)
+}
+
+/**
  * AI 精修：对选中的好图再生成 3 张设计师级升级版
  * @param {{ image: string, style?: string, note?: string, userId?: string }} params
  * @returns {Promise<{ images: string[], count: number, sourceImage: string, style: string }>}
