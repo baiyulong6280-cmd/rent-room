@@ -43,6 +43,10 @@ const routes = [
   { path: '/ai/season',   component: () => import('@/pages/AiSeason.vue'),  meta: { title: '整季系列生成' } },
   { path: '/ai/techpack', component: () => import('@/pages/TechPack.vue'),  meta: { title: '设计稿' } },
 
+  { path: '/design',        component: () => import('@/pages/AiPipeline.vue'),  meta: { title: 'AI设计流水线' } },
+  { path: '/design/detail', component: () => import('@/pages/DesignDetail.vue'), meta: { title: '设计稿' } },
+  { path: '/brand',         component: () => import('@/pages/Brand.vue'),        meta: { title: '品牌风格' } },
+
     // ── 404 ───────────────────────────────────────
   { path: '/:pathMatch(.*)*', component: () => import('@/pages/NotFound.vue'), meta: { title: '页面不存在' } },
 ]
