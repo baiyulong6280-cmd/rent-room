@@ -221,6 +221,28 @@ onMounted(() => {
         </div>
       </section>
 
+      <!-- ── 排行榜 + 邀请 快捷入口 ──────────────────────────────── -->
+      <section class="mb-6">
+        <div class="grid grid-cols-2 gap-3">
+          <button
+            class="card p-4 text-left active:scale-95 transition-transform duration-100"
+            @click="router.push('/leaderboard')"
+          >
+            <span class="text-2xl mb-2 block">🏆</span>
+            <p class="font-semibold text-sm">收益排行榜</p>
+            <p class="text-muted text-xs mt-0.5">看看你排第几名</p>
+          </button>
+          <button
+            class="card p-4 text-left active:scale-95 transition-transform duration-100"
+            @click="router.push('/invite')"
+          >
+            <span class="text-2xl mb-2 block">🎁</span>
+            <p class="font-semibold text-sm">邀请好友</p>
+            <p class="text-xs mt-0.5" style="color:#00FF88">每邀请一人得 €2</p>
+          </button>
+        </div>
+      </section>
+
       <!-- ── 提现系统 ──────────────────────────────────────────────── -->
       <section class="mb-6">
         <h2 class="font-semibold text-sm mb-3">提现</h2>
@@ -430,7 +452,7 @@ onMounted(() => {
                 bg-bg/95 backdrop-blur-md border-t border-border
                 flex items-center justify-around
                 px-2 pt-2 pb-[calc(.5rem+env(safe-area-inset-bottom))]">
-      <button class="flex flex-col items-center gap-0.5 px-4 py-1 text-muted
+      <button class="flex flex-col items-center gap-0.5 px-3 py-1 text-muted
                      active:text-white transition-colors"
               @click="router.push('/')">
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24"
@@ -440,7 +462,7 @@ onMounted(() => {
         </svg>
         <span class="text-[10px] font-semibold">首页</span>
       </button>
-      <button class="flex flex-col items-center gap-0.5 px-4 py-1 text-muted
+      <button class="flex flex-col items-center gap-0.5 px-3 py-1 text-muted
                      active:text-white transition-colors"
               @click="router.push('/generate')">
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24"
@@ -449,7 +471,7 @@ onMounted(() => {
         </svg>
         <span class="text-[10px] font-semibold">AI生成</span>
       </button>
-      <button class="flex flex-col items-center gap-0.5 px-4 py-1 text-muted
+      <button class="flex flex-col items-center gap-0.5 px-3 py-1 text-muted
                      active:text-white transition-colors"
               @click="router.push('/template')">
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24"
@@ -459,7 +481,18 @@ onMounted(() => {
         </svg>
         <span class="text-[10px] font-semibold">模板</span>
       </button>
-      <button class="flex flex-col items-center gap-0.5 px-4 py-1 text-accent">
+      <!-- 排行榜 -->
+      <button class="flex flex-col items-center gap-0.5 px-3 py-1 text-muted
+                     active:text-white transition-colors"
+              @click="router.push('/leaderboard')">
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+             stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
+        <span class="text-[10px] font-semibold">排行</span>
+      </button>
+      <button class="flex flex-col items-center gap-0.5 px-3 py-1 text-accent">
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24"
              stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round"

@@ -5,6 +5,7 @@ import Template        from '@/pages/Template.vue'
 import TemplatePreview from '@/pages/TemplatePreview.vue'
 import Shop            from '@/pages/Shop.vue'
 import Me              from '@/pages/Me.vue'
+import Leaderboard     from '@/pages/Leaderboard.vue'
 import Landing         from '@/pages/Landing.vue'
 import PayResult       from '@/pages/PayResult.vue'
 import PayOrderResult  from '@/pages/PayOrderResult.vue'
@@ -18,6 +19,7 @@ const routes = [
   { path: '/template/:id', component: TemplatePreview, meta: { title: '模板预览' } },
   { path: '/shop/:id',     component: Shop,            meta: { title: '店铺' } },
   { path: '/me',           component: Me,              meta: { title: '我的' } },
+  { path: '/leaderboard',  component: Leaderboard,     meta: { title: '收益排行榜' } },
 
   // ── 支付（静态路由必须在动态路由前，避免参数捕获）──────────
   { path: '/pay/result',        component: PayResult,       meta: { title: '支付完成' } },

@@ -21,3 +21,19 @@ export function getProfile(userId) {
 export function getEarnings(userId) {
   return http.get('/api/user/earnings', { params: { userId } })
 }
+
+/**
+ * 获取收益排行榜（前50名）
+ * @returns {Promise<Array<{ rank, userId, nickname, totalEarn }>>}
+ */
+export function getLeaderboard() {
+  return http.get('/api/user/leaderboard')
+}
+
+/**
+ * 获取当前用户的排名
+ * @returns {Promise<{ rank: number, totalEarn: number }>}
+ */
+export function getMyRank() {
+  return http.get('/api/user/myRank')
+}
