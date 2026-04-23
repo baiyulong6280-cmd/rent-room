@@ -502,7 +502,7 @@ function scoreColor(score) {
         <!-- ── 7 精修 ──────────────────────────────── -->
         <div v-if="selected" class="mb-5">
           <p class="label-xs mb-2">精修（→ 3 张设计师级升级版）</p>
-          <input v-model="refineNote" type="text" placeholder="可选备注，如"更简洁""
+          <input v-model="refineNote" type="text" :placeholder='"可选备注，如\"更简洁\""'
                  class="w-full h-10 rounded-xl px-3 text-sm bg-surface2 border border-border text-white
                         placeholder:text-muted focus:outline-none focus:border-accent mb-2.5"
                  @keydown.enter="doRefine" />
