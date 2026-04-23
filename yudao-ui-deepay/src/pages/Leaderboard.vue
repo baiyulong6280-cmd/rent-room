@@ -163,6 +163,25 @@ onUnmounted(() => clearInterval(timer))
         </div>
       </section>
 
+      <!-- ── 邀请好友得 €2 提示条 ───────────────────────────────────── -->
+      <section class="mb-6">
+        <button
+          class="w-full card px-4 py-3 rounded-xl flex items-center gap-3
+                 active:scale-[.98] transition-transform duration-100"
+          @click="router.push('/invite')"
+        >
+          <span class="text-xl shrink-0">🎁</span>
+          <div class="flex-1 text-left">
+            <p class="text-sm font-semibold">邀请好友下单得 €2</p>
+            <p class="text-xs text-muted mt-0.5">分享链接 → 好友首次下单 → 自动到账</p>
+          </div>
+          <svg class="h-4 w-4 text-muted shrink-0" fill="none" viewBox="0 0 24 24"
+               stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+          </svg>
+        </button>
+      </section>
+
       <!-- ── 排行榜列表 ───────────────────────────────────────── -->
       <section>
         <p class="text-[10px] text-muted uppercase tracking-widest mb-3">

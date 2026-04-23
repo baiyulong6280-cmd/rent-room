@@ -191,6 +191,24 @@ const myShops = computed(() => {
             <p class="text-muted text-xs mt-0.5">每日 {{ remainFree }} 次免费</p>
           </button>
 
+          <button
+            class="card p-4 text-left active:scale-95 transition-transform duration-100"
+            @click="router.push('/leaderboard')"
+          >
+            <span class="text-2xl mb-2 block">🏆</span>
+            <p class="font-semibold text-sm">收益排行榜</p>
+            <p class="text-muted text-xs mt-0.5">看看你排第几名</p>
+          </button>
+
+          <button
+            class="card p-4 text-left active:scale-95 transition-transform duration-100"
+            @click="router.push('/invite')"
+          >
+            <span class="text-2xl mb-2 block">🎁</span>
+            <p class="font-semibold text-sm">邀请好友</p>
+            <p class="text-xs mt-0.5" style="color:#00FF88">每邀请一人得 €2</p>
+          </button>
+
         </div>
       </section>
 
