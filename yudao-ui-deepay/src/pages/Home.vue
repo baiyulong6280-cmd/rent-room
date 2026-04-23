@@ -202,6 +202,15 @@ const myShops = computed(() => {
 
           <button
             class="card p-4 text-left active:scale-95 transition-transform duration-100"
+            @click="router.push('/inspiration')"
+          >
+            <span class="text-2xl mb-2 block">🎭</span>
+            <p class="font-semibold text-sm">灵感库</p>
+            <p class="text-muted text-xs mt-0.5" style="color:#A855F7">秀场 + 品牌图</p>
+          </button>
+
+          <button
+            class="card p-4 text-left active:scale-95 transition-transform duration-100"
             @click="router.push('/leaderboard')"
           >
             <span class="text-2xl mb-2 block">🏆</span>

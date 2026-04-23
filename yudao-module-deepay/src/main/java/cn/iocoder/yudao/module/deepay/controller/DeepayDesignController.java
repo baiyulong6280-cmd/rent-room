@@ -499,6 +499,85 @@ public class DeepayDesignController {
     }
 
     // ====================================================================
+    // GET /api/inspiration/images — 时装灵感库（种子数据）
+    //
+    // 返回分页的灵感图片列表，支持 source / style / type 过滤
+    // ====================================================================
+
+    @GetMapping("/inspiration/images")
+    @Operation(summary = "获取时装灵感库图片（时装周 + 品牌 + 大片）")
+    public CommonResult<Map<String, Object>> inspirationImages(
+            @RequestParam(value = "source", required = false) String source,
+            @RequestParam(value = "style",  required = false) String style,
+            @RequestParam(value = "type",   required = false) String type,
+            @RequestParam(value = "limit",  defaultValue = "30") int limit) {
+
+        log.info("[inspirationImages] source={} style={} type={} limit={}", source, style, type, limit);
+
+        List<Map<String, Object>> all = buildInspirationSeed();
+
+        List<Map<String, Object>> filtered = all.stream()
+                .filter(item -> source == null || source.isEmpty()
+                        || source.equals(item.get("source")))
+                .filter(item -> style  == null || style.isEmpty()
+                        || style.equals(item.get("style")))
+                .filter(item -> type   == null || type.isEmpty()
+                        || type.equals(item.get("type")))
+                .limit(Math.min(limit, 100))
+                .collect(Collectors.toList());
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("items", filtered);
+        resp.put("count", filtered.size());
+        return success(resp);
+    }
+
+    /** Builds the static inspiration seed data. */
+    private List<Map<String, Object>> buildInspirationSeed() {
+        Object[][] seed = {
+            // { id, imageUrl, source, brand, style, type, season, desc }
+            {"fw_paris_001","https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80&fit=crop","fashion_week","Paris Fashion Week","minimal","coat","AW 2024","极简黑白大衣，结构感强"},
+            {"fw_paris_002","https://images.unsplash.com/photo-1509631179647-0177331693ae?w=600&q=80&fit=crop","fashion_week","Paris Fashion Week","avant-garde","dress","SS 2024","廓形连衣裙，强调剪裁"},
+            {"fw_paris_003","https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=600&q=80&fit=crop","fashion_week","Paris Fashion Week","luxury","suit","AW 2024","高端西装套装，精致细节"},
+            {"fw_paris_004","https://images.unsplash.com/photo-1539109136881-3be0616acf4b?w=600&q=80&fit=crop","fashion_week","Paris Fashion Week","minimal","trench","SS 2025","风衣廓形，米色经典"},
+            {"fw_milan_001","https://images.unsplash.com/photo-1469334031218-e382a71b716b?w=600&q=80&fit=crop","fashion_week","Milan Fashion Week","luxury","gown","AW 2024","米兰秀台礼服，奢华面料"},
+            {"fw_milan_002","https://images.unsplash.com/photo-1558618047-3c8c76ca7d13?w=600&q=80&fit=crop","fashion_week","Milan Fashion Week","streetwear","jacket","SS 2024","运动夹克，街头奢华融合"},
+            {"fw_milan_003","https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=600&q=80&fit=crop","fashion_week","Milan Fashion Week","elegant","blouse","SS 2025","精致衬衫，意式优雅"},
+            {"fw_ny_001","https://images.unsplash.com/photo-1496747611176-843222e1e57c?w=600&q=80&fit=crop","fashion_week","New York Fashion Week","minimal","coat","AW 2024","纽约极简主义大衣"},
+            {"fw_ny_002","https://images.unsplash.com/photo-1518611012118-696072aa579a?w=600&q=80&fit=crop","fashion_week","New York Fashion Week","streetwear","set","SS 2024","运动时尚套装，都市风"},
+            {"fw_ny_003","https://images.unsplash.com/photo-1485968579580-b6d095142e6e?w=600&q=80&fit=crop","fashion_week","New York Fashion Week","trendy","dress","SS 2025","大胆印花连衣裙"},
+            {"brand_cos_001","https://images.unsplash.com/photo-1525507119028-ed4c629a60a3?w=600&q=80&fit=crop","brand_lookbook","COS","minimal","coat","AW 2024","COS 极简羊毛大衣"},
+            {"brand_cos_002","https://images.unsplash.com/photo-1434389677669-e08b4cac3105?w=600&q=80&fit=crop","brand_lookbook","COS","minimal","dress","SS 2024","COS 结构感连衣裙"},
+            {"brand_cos_003","https://images.unsplash.com/photo-1483985988355-763728e1935b?w=600&q=80&fit=crop","brand_lookbook","COS","minimal","trousers","SS 2025","COS 宽腿剪裁长裤"},
+            {"brand_arket_001","https://images.unsplash.com/photo-1584370848010-d7fe6bc767ec?w=600&q=80&fit=crop","brand_lookbook","ARKET","minimal","shirt","SS 2024","ARKET 纯棉衬衫，极简主义"},
+            {"brand_arket_002","https://images.unsplash.com/photo-1619603364853-a8ff3db2b12e?w=600&q=80&fit=crop","brand_lookbook","ARKET","minimal","knitwear","AW 2024","ARKET 精制针织，北欧风格"},
+            {"brand_acne_001","https://images.unsplash.com/photo-1551232864-3f0890e580d9?w=600&q=80&fit=crop","brand_lookbook","Acne Studios","minimal","coat","AW 2024","Acne Studios 标志性廓形大衣"},
+            {"brand_acne_002","https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=600&q=80&fit=crop","brand_lookbook","Acne Studios","trendy","jacket","SS 2025","Acne Studios 前卫夹克"},
+            {"brand_zara_001","https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=600&q=80&fit=crop","brand_lookbook","ZARA","trendy","coat","AW 2024","ZARA 快时尚廓形大衣"},
+            {"brand_zara_002","https://images.unsplash.com/photo-1568252542512-9fe8fe9c87bb?w=600&q=80&fit=crop","brand_lookbook","ZARA","elegant","dress","SS 2024","ZARA 优雅连衣裙，可落地"},
+            {"ed_ssense_001","https://images.unsplash.com/photo-1544957992-20514f595d6f?w=600&q=80&fit=crop","editorial","SSENSE","luxury","coat","AW 2024","设计师精选，奢华大衣"},
+            {"ed_ssense_002","https://images.unsplash.com/photo-1516762689617-e1cffcef479d?w=600&q=80&fit=crop","editorial","SSENSE","minimal","dress","SS 2024","SSENSE 编辑精选极简连衣裙"},
+            {"ed_farfetch_001","https://images.unsplash.com/photo-1506634572416-48cdfe530110?w=600&q=80&fit=crop","editorial","Farfetch","luxury","suit","SS 2025","Farfetch 精品奢华西装"},
+            {"ed_farfetch_002","https://images.unsplash.com/photo-1487222477894-8943e31ef7b2?w=600&q=80&fit=crop","editorial","Farfetch","streetwear","jacket","AW 2024","街头潮牌夹克，高端配色"},
+        };
+
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (Object[] row : seed) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id",     row[0]);
+            item.put("image",  row[1]);
+            item.put("source", row[2]);
+            item.put("brand",  row[3]);
+            item.put("style",  row[4]);
+            item.put("type",   row[5]);
+            item.put("season", row[6]);
+            item.put("desc",   row[7]);
+            items.add(item);
+        }
+        return items;
+    }
+
+    // ====================================================================
     // POST /api/ai/score — 设计评分（核心）
     //
     // 请求：{ "images": ["url1",...,"url6"], "style": "minimal" }

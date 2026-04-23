@@ -23,8 +23,8 @@
   [保存到款库]  [一键看推荐]
 -->
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   redesignImages,
   editImage,
@@ -35,6 +35,7 @@ import {
 } from '@/api/ai'
 import { initUserId } from '@/utils/user'
 
+const route  = useRoute()
 const router = useRouter()
 const userId = initUserId()
 
@@ -86,6 +87,17 @@ let objectUrls         = []   // track blob URLs for cleanup
 
 onUnmounted(() => {
   objectUrls.forEach(u => URL.revokeObjectURL(u))
+})
+
+// ── Read ?refs= query param from Inspiration.vue ──────────────────────
+onMounted(() => {
+  const refsParam = route.query.refs
+  if (refsParam) {
+    const decoded = String(refsParam).split(',').map(r => decodeURIComponent(r.trim())).filter(Boolean)
+    decoded.forEach(url => {
+      if (!refImageUrls.value.includes(url)) refImageUrls.value.push(url)
+    })
+  }
 })
 
 function onFileChange(e) {
@@ -283,6 +295,14 @@ function scoreColor(score) {
 
     <div class="max-w-[480px] mx-auto px-4 pt-5 pb-32">
 
+      <!-- 灵感库来源提示 -->
+      <div v-if="refImageUrls.length && route.query.refs"
+           class="mb-4 p-3 rounded-xl text-xs leading-relaxed"
+           style="background:#A855F71A; border:1px solid #A855F733; color:#A855F7">
+        💡 <strong>灵感融合提示：</strong>
+        秀场图提供结构/剪裁灵感，品牌图提供可穿性，AI 将融合两者生成新款
+      </div>
+
       <!-- ── 上传参考图 ─────────────────────────────────────── -->
       <section class="mb-5">
         <p class="text-[11px] text-muted font-semibold uppercase tracking-widest mb-2.5">
@@ -322,6 +342,12 @@ function scoreColor(score) {
             class="hidden"
             @change="onFileChange"
           />
+
+          <!-- 灵感库 -->
+          <button
+            class="chip text-xs shrink-0"
+            @click="router.push('/inspiration')"
+          >🎭 灵感库</button>
 
           <!-- URL 粘贴 -->
           <input
