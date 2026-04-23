@@ -193,6 +193,15 @@ const myShops = computed(() => {
 
           <button
             class="card p-4 text-left active:scale-95 transition-transform duration-100"
+            @click="router.push('/redesign')"
+          >
+            <span class="text-2xl mb-2 block">✏️</span>
+            <p class="font-semibold text-sm">AI改款</p>
+            <p class="text-muted text-xs mt-0.5">上传参考图改款</p>
+          </button>
+
+          <button
+            class="card p-4 text-left active:scale-95 transition-transform duration-100"
             @click="router.push('/leaderboard')"
           >
             <span class="text-2xl mb-2 block">🏆</span>

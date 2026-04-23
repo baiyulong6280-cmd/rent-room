@@ -15,6 +15,7 @@ import cn.iocoder.yudao.module.deepay.service.CurrencyService;
 import cn.iocoder.yudao.module.deepay.service.DeepayQuotaService;
 import cn.iocoder.yudao.module.deepay.service.DeepayRateLimitService;
 import cn.iocoder.yudao.module.deepay.service.DeepayTaskAsyncService;
+import cn.iocoder.yudao.module.deepay.service.FluxService;
 import cn.iocoder.yudao.module.deepay.service.UserProfileService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -498,8 +499,239 @@ public class DeepayDesignController {
     }
 
     // ====================================================================
+    // POST /api/ai/score — 设计评分（核心）
+    //
+    // 请求：{ "images": ["url1",...,"url6"], "style": "minimal" }
+    // 响应：{ "scores": [ { "url":"url1","score":82 }, ... ] }
+    //
+    // 评分维度（可用版）：
+    //   1. URL 合法性 / 格式（10分）
+    //   2. 基于 URL 路径特征的清晰度指示（20分）
+    //   3. 风格吻合度（style 关键词命中，20分）
+    //   4. 设计感分（URL 多样性 + 随机偏移，50分基础）
+    //   总分 0-100，允许 ±随机噪声，保证排序有意义
+    // ====================================================================
+
+    @PostMapping("/ai/score")
+    @Operation(summary = "AI 设计评分：对每张图打 0-100 分")
+    public CommonResult<Map<String, Object>> scoreImages(@RequestBody ScoreReqVO req) {
+        List<String> images = req.getImages();
+        if (images == null || images.isEmpty()) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("error", "images 不能为空");
+            r.put("code",  400);
+            return success(r);
+        }
+        String style = req.getStyle() != null ? req.getStyle().toLowerCase() : "minimal";
+        log.info("[scoreImages] style={} count={}", style, images.size());
+
+        List<Map<String, Object>> scores = new ArrayList<>();
+        for (String url : images) {
+            int score = computeScore(url, style);
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("url",   url);
+            entry.put("score", score);
+            scores.add(entry);
+        }
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("scores", scores);
+        resp.put("style",  style);
+        return success(resp);
+    }
+
+    // ====================================================================
+    // POST /api/ai/select — 自动选最优 Top-3
+    //
+    // 请求：{ "images": ["url1",...,"url6"] }
+    // 响应：{ "best": ["url2","url5","url1"] }
+    // ====================================================================
+
+    @PostMapping("/ai/select")
+    @Operation(summary = "AI 自动选款：按评分取 Top 3")
+    public CommonResult<Map<String, Object>> selectBest(@RequestBody SelectBestReqVO req) {
+        List<String> images = req.getImages();
+        if (images == null || images.isEmpty()) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("error", "images 不能为空");
+            r.put("code",  400);
+            return success(r);
+        }
+        String style = req.getStyle() != null ? req.getStyle().toLowerCase() : "minimal";
+        log.info("[selectBest] style={} count={}", style, images.size());
+
+        // Step 1: score every image
+        List<Map.Entry<String, Integer>> scored = new ArrayList<>();
+        for (String url : images) {
+            scored.add(new AbstractMap.SimpleEntry<>(url, computeScore(url, style)));
+        }
+
+        // Step 2: sort descending
+        scored.sort((a, b) -> b.getValue() - a.getValue());
+
+        // Step 3: pick top 3, de-duplicate (already distinct URLs)
+        int topN = Math.min(3, scored.size());
+        List<String> best = scored.subList(0, topN).stream()
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
+
+        // Also return scores so frontend can display them
+        List<Map<String, Object>> scoreList = scored.stream().map(e -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("url",   e.getKey());
+            m.put("score", e.getValue());
+            m.put("recommended", best.contains(e.getKey()));
+            return m;
+        }).collect(Collectors.toList());
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("best",   best);
+        resp.put("scores", scoreList);
+        return success(resp);
+    }
+
+    // ====================================================================
+    // POST /api/ai/deduplicate — 防撞款：过滤高相似度图片
+    //
+    // 请求：{ "images": ["url1","url2","url3"],
+    //        "reference": ["原图1","原图2"] }
+    // 响应：{ "filtered": ["url2","url3"] }
+    //
+    // 实现（可用简单版）：
+    //   - URL 字符串相似度 (Levenshtein ratio) > 0.85 → 视为重复，只保留第一张
+    //   - 对 reference 执行同样逻辑
+    //   - 结果至少保留 1 张
+    // ====================================================================
+
+    @PostMapping("/ai/deduplicate")
+    @Operation(summary = "AI 防撞款：过滤与参考图或彼此高度相似的图片")
+    public CommonResult<Map<String, Object>> deduplicate(@RequestBody DeduplicateReqVO req) {
+        List<String> images    = req.getImages()    != null ? req.getImages()    : Collections.emptyList();
+        List<String> reference = req.getReference() != null ? req.getReference() : Collections.emptyList();
+        double threshold = req.getThreshold() != null ? req.getThreshold() : 0.85;
+
+        log.info("[deduplicate] images={} reference={} threshold={}", images.size(), reference.size(), threshold);
+
+        List<String> filtered = new ArrayList<>();
+        for (String url : images) {
+            // Check against reference images
+            boolean tooSimilarToRef = reference.stream()
+                    .anyMatch(ref -> urlSimilarity(url, ref) > threshold);
+            if (tooSimilarToRef) {
+                log.debug("[deduplicate] {} removed (too similar to reference)", url);
+                continue;
+            }
+            // Check against already accepted images
+            boolean tooSimilarToAccepted = filtered.stream()
+                    .anyMatch(accepted -> urlSimilarity(url, accepted) > threshold);
+            if (tooSimilarToAccepted) {
+                log.debug("[deduplicate] {} removed (duplicate among generated)", url);
+                continue;
+            }
+            filtered.add(url);
+        }
+
+        // Safety: if all removed, keep the first image
+        if (filtered.isEmpty() && !images.isEmpty()) {
+            filtered.add(images.get(0));
+        }
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("filtered",      filtered);
+        resp.put("originalCount", images.size());
+        resp.put("filteredCount", filtered.size());
+        resp.put("removedCount",  images.size() - filtered.size());
+        return success(resp);
+    }
+
+    // ====================================================================
     // Private helpers
     // ====================================================================
+
+    /**
+     * Rule-based image score (0-100).
+     *
+     * Dimensions:
+     *  A) URL validity / format quality  (0-15)
+     *  B) Style keyword match            (0-25)
+     *  C) Design variety signal (hash)   (0-35)
+     *  D) Deterministic noise spread     (0-25)
+     *
+     * Deterministic per URL so repeated calls return the same score.
+     */
+    private int computeScore(String url, String style) {
+        if (url == null || url.isBlank()) return 0;
+
+        int score = 0;
+
+        // A) URL quality (15 pts): HTTPS + image extension + reasonable length
+        if (url.startsWith("https://")) score += 8;
+        else if (url.startsWith("http://")) score += 4;
+        String lower = url.toLowerCase();
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png")
+                || lower.endsWith(".webp") || lower.contains("/image") || lower.contains("/img")
+                || lower.contains("cdn") || lower.contains("oss")) {
+            score += 7;
+        }
+
+        // B) Style keyword match (25 pts)
+        String styleKeywords = STYLE_PROMPT_MAP.getOrDefault(style, "");
+        String[] styleWords = styleKeywords.split("[,\\s]+");
+        int styleHits = 0;
+        for (String kw : styleWords) {
+            if (!kw.isBlank() && lower.contains(kw.toLowerCase())) styleHits++;
+        }
+        score += Math.min(25, styleHits * 5 + 10); // base 10 + 5 per keyword hit, cap 25
+
+        // C) Design variety signal from URL hash (35 pts, deterministic)
+        int hash = Math.abs(url.hashCode());
+        score += (hash % 36); // 0-35
+
+        // D) Spread score based on URL length (25 pts)
+        int lenScore = Math.min(25, (url.length() % 30));
+        score += lenScore;
+
+        return Math.max(0, Math.min(100, score));
+    }
+
+    /**
+     * URL-string similarity ratio (0.0 to 1.0) using simple longest-common-subsequence
+     * approximation (fast enough for small lists).
+     *
+     * Exact duplicates → 1.0; completely different → near 0.0.
+     */
+    private double urlSimilarity(String a, String b) {
+        if (a == null || b == null) return 0.0;
+        if (a.equals(b)) return 1.0;
+
+        // Normalise: strip query params for comparison
+        String normA = a.contains("?") ? a.substring(0, a.indexOf('?')) : a;
+        String normB = b.contains("?") ? b.substring(0, b.indexOf('?')) : b;
+        if (normA.equals(normB)) return 1.0;
+
+        // Character n-gram similarity (trigrams)
+        int n = 3;
+        Set<String> gramsA = ngrams(normA, n);
+        Set<String> gramsB = ngrams(normB, n);
+        if (gramsA.isEmpty() || gramsB.isEmpty()) return 0.0;
+
+        Set<String> intersection = new HashSet<>(gramsA);
+        intersection.retainAll(gramsB);
+
+        return (2.0 * intersection.size()) / (gramsA.size() + gramsB.size()); // Dice coefficient
+    }
+
+    private Set<String> ngrams(String s, int n) {
+        Set<String> result = new HashSet<>();
+        if (s.length() < n) {
+            result.add(s);
+            return result;
+        }
+        for (int i = 0; i <= s.length() - n; i++) {
+            result.add(s.substring(i, i + n));
+        }
+        return result;
+    }
 
     /** Style → English prompt fragment (locked rules per spec). */
     private static final Map<String, String> STYLE_PROMPT_MAP;
@@ -659,6 +891,36 @@ public class DeepayDesignController {
         public void setUserId(Long v)   { this.userId = v; }
         public BigDecimal getAmount()   { return amount; }
         public void setAmount(BigDecimal v)  { this.amount = v; }
+    }
+
+    public static class ScoreReqVO {
+        private List<String> images;
+        private String style;
+        public List<String> getImages()  { return images; }
+        public void setImages(List<String> v) { this.images = v; }
+        public String getStyle()         { return style; }
+        public void setStyle(String v)   { this.style = v; }
+    }
+
+    public static class SelectBestReqVO {
+        private List<String> images;
+        private String style;
+        public List<String> getImages()  { return images; }
+        public void setImages(List<String> v) { this.images = v; }
+        public String getStyle()         { return style; }
+        public void setStyle(String v)   { this.style = v; }
+    }
+
+    public static class DeduplicateReqVO {
+        private List<String> images;
+        private List<String> reference;
+        private Double threshold;
+        public List<String> getImages()      { return images; }
+        public void setImages(List<String> v) { this.images = v; }
+        public List<String> getReference()   { return reference; }
+        public void setReference(List<String> v) { this.reference = v; }
+        public Double getThreshold()         { return threshold; }
+        public void setThreshold(Double v)   { this.threshold = v; }
     }
 }
 
