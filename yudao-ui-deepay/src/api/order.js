@@ -1,19 +1,8 @@
 /**
  * order.js — order & payment API
+ * X-User-Id header injected automatically by request.js interceptor.
  */
-import axios from 'axios'
-
-const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '',
-  timeout: 30_000,
-  headers: { 'Content-Type': 'application/json' },
-})
-
-// Unwrap CommonResult { code, data, msg }
-http.interceptors.response.use(
-  res => res.data?.data ?? res.data,
-  err => Promise.reject(err)
-)
+import http from '@/utils/request'
 
 /**
  * Create a product purchase order.

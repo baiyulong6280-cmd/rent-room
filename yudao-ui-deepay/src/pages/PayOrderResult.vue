@@ -10,6 +10,8 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { initUserId, buildShareLink, shareOrCopy } from '@/utils/user'
+
 const route  = useRoute()
 const router = useRouter()
 
@@ -17,7 +19,7 @@ const status  = ref('loading')
 const orderId = ref('')
 const shopId  = ref('')
 
-const MY_USER_ID = localStorage.getItem('deepay_uid') || 'u1'
+const MY_USER_ID = initUserId()
 
 onMounted(() => {
   const result = route.query.result || 'success'
@@ -40,14 +42,7 @@ function goShop() {
 
 function shareShop() {
   if (!shopId.value) return
-  const link = `${window.location.origin}/shop/${shopId.value}?ref=${MY_USER_ID}`
-  if (navigator.share) {
-    navigator.share({ title: '我开的小店', url: link }).catch(() => {})
-  } else {
-    navigator.clipboard?.writeText(link)
-      .then(() => alert('分享链接已复制 🎉\n' + link))
-      .catch(() => alert('分享链接：\n' + link))
-  }
+  shareOrCopy(buildShareLink(shopId.value, MY_USER_ID), '我开的小店')
 }
 </script>
 

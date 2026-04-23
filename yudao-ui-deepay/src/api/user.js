@@ -1,28 +1,8 @@
 /**
  * user.js — 用户 / 佣金 API
- *
- * 后端接口规范：
- *
- * GET  /api/user/profile?userId=xxx
- *   → { userId, nickname, totalEarn, totalOrders }
- *
- * GET  /api/user/earnings?userId=xxx
- *   → { total: 123.45, list: [{ orderId, amount, status, createdAt }] }
- *
- * 离线降级：接口失败时返回空数据，不阻断页面渲染。
+ * X-User-Id header injected automatically by request.js interceptor.
  */
-import axios from 'axios'
-
-const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '',
-  timeout: 30_000,
-  headers: { 'Content-Type': 'application/json' },
-})
-
-http.interceptors.response.use(
-  res => res.data?.data ?? res.data,
-  err => Promise.reject(err),
-)
+import http from '@/utils/request'
 
 /**
  * 获取用户资料

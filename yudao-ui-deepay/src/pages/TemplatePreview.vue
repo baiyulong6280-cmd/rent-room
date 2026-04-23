@@ -9,6 +9,7 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { templates } from '@/data/templates'
 import { createShop } from '@/api/shop'
+import { initUserId, buildShareLink, shareOrCopy } from '@/utils/user'
 
 const route  = useRoute()
 const router = useRouter()
@@ -19,7 +20,7 @@ const tpl = computed(() =>
 
 const opening = ref(false)
 
-const MY_USER_ID = localStorage.getItem('deepay_uid') || 'u1'
+const MY_USER_ID = initUserId()
 
 async function createShopAndGo() {
   if (!tpl.value || opening.value) return
@@ -36,15 +37,8 @@ async function createShopAndGo() {
     })
 
     // 开店成功 → 先弹分享，再跳店铺
-    const link  = `${window.location.origin}/shop/${shopId}?ref=${MY_USER_ID}`
-    const title = tpl.value.name || '我的店铺'
-    if (navigator.share) {
-      navigator.share({ title, url: link }).catch(() => {})
-    } else {
-      navigator.clipboard?.writeText(link)
-        .then(() => alert(`店铺已生成 🎉 分享链接已复制！\n\n${link}`))
-        .catch(() => alert(`店铺已生成 🎉\n分享链接：\n${link}`))
-    }
+    const link = buildShareLink(shopId, MY_USER_ID)
+    shareOrCopy(link, tpl.value.name || '我的店铺')
 
     router.push(`/shop/${shopId}`)
   } catch (_) {

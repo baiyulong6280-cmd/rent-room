@@ -11,11 +11,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { createGenerateTask, getTaskResult, selectImage, getQuotaInfo } from '@/api/design'
 import { createShop } from '@/api/shop'
 import PaywallModal from './PaywallModal.vue'
+import { initUserId } from '@/utils/user'
 
 const route  = useRoute()
 const router = useRouter()
 
-const USER_ID = localStorage.getItem('deepay_uid') || 'u1'
+const USER_ID = initUserId()
 
 // ── 筛选项 ──────────────────────────────────────────────────────────────
 const CATEGORIES = ['外套', '连衣裙', '裤子', '上衣', '运动', '内衣']

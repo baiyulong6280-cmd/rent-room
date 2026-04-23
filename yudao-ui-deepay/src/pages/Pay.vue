@@ -7,6 +7,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getQuotaInfo } from '@/api'
+import { initUserId } from '@/utils/user'
 
 const route  = useRoute()
 const router = useRouter()
@@ -15,7 +16,7 @@ const status  = ref('loading')
 const quota   = ref(null)
 const message = ref('')
 
-const USER_ID = localStorage.getItem('deepay_uid') || 'u1'
+const USER_ID = initUserId()
 
 onMounted(async () => {
   const result = route.query.result || 'success'

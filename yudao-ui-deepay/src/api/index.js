@@ -1,20 +1,9 @@
 /**
  * Deepay API module — all backend calls in one place.
  * Base URL is proxied via vite.config.js in dev; set VITE_API_BASE in .env for prod.
+ * X-User-Id header is injected automatically by src/utils/request.js interceptor.
  */
-import axios from 'axios'
-
-const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '',
-  timeout: 30_000,
-  headers: { 'Content-Type': 'application/json' },
-})
-
-// Unwrap the yudao CommonResult wrapper { code, data, msg }
-http.interceptors.response.use(
-  res => res.data?.data ?? res.data,
-  err => Promise.reject(err)
-)
+import http from '@/utils/request'
 
 // ── Design ────────────────────────────────────────────────────────────
 

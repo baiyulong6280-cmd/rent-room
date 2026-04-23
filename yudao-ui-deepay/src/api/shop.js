@@ -5,19 +5,9 @@
  *   - createShop 优先存 localStorage（无后端时离线可用）
  *   - 同时尝试 POST /api/shop/create（有后端时同步到服务端）
  *   - getShop   先读 localStorage，无则请求后端
+ * X-User-Id header injected automatically by request.js interceptor.
  */
-import axios from 'axios'
-
-const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '',
-  timeout: 30_000,
-  headers: { 'Content-Type': 'application/json' },
-})
-
-http.interceptors.response.use(
-  res => res.data?.data ?? res.data,
-  err => Promise.reject(err)
-)
+import http from '@/utils/request'
 
 /**
  * 创建店铺

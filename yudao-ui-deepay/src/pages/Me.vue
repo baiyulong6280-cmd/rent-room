@@ -9,10 +9,11 @@
   ✔ 分享链接带 ?ref=myUserId（裂变）
 -->
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { initUserId, buildShareLink, shareOrCopy } from '@/utils/user'
 import { getEarnings } from '@/api/user'
+import { applyWithdraw, getWithdrawList, getUserBalance } from '@/api/withdraw'
 
 const router = useRouter()
 
@@ -32,6 +33,63 @@ async function loadEarnings() {
   } catch (_) {
     earningsError.value = true
     totalEarn.value     = 0
+  }
+}
+
+// ── 余额 + 提现 ─────────────────────────────────────────────────────
+const balance        = ref(null)
+const frozen         = ref(0)
+const withdrawAmount = ref('')
+const withdrawAcct   = ref('')
+const withdrawing    = ref(false)
+const withdrawError  = ref('')
+const withdrawOk     = ref(false)
+const withdrawList   = ref([])
+
+async function loadBalance() {
+  try {
+    const data    = await getUserBalance()
+    balance.value = data?.balance ?? 0
+    frozen.value  = data?.frozen  ?? 0
+  } catch (_) {
+    balance.value = 0
+  }
+}
+
+async function loadWithdrawList() {
+  try {
+    withdrawList.value = await getWithdrawList() ?? []
+  } catch (_) {}
+}
+
+async function submitWithdraw() {
+  withdrawError.value = ''
+  withdrawOk.value    = false
+  const amt = Number(withdrawAmount.value)
+  if (!amt || amt < 10) {
+    withdrawError.value = '最低提现金额 €10'
+    return
+  }
+  if (!withdrawAcct.value.trim()) {
+    withdrawError.value = '请填写收款账号'
+    return
+  }
+  if (balance.value !== null && amt > balance.value) {
+    withdrawError.value = `余额不足（可提现 €${Number(balance.value).toFixed(2)}）`
+    return
+  }
+  withdrawing.value = true
+  try {
+    await applyWithdraw(amt, withdrawAcct.value.trim())
+    withdrawOk.value    = true
+    withdrawAmount.value = ''
+    withdrawAcct.value   = ''
+    await loadBalance()
+    await loadWithdrawList()
+  } catch (e) {
+    withdrawError.value = e?.response?.data?.msg || '提交失败，请稍后重试'
+  } finally {
+    withdrawing.value = false
   }
 }
 
@@ -71,11 +129,11 @@ function formatDate(shopId) {
   } catch (_) { return '' }
 }
 
-const hasEarnings = computed(() => totalEarn.value !== null && totalEarn.value > 0)
-
 onMounted(() => {
   shops.value = loadShops()
   loadEarnings()
+  loadBalance()
+  loadWithdrawList()
 })
 </script>
 
@@ -128,7 +186,7 @@ onMounted(() => {
           <div class="bg-bg/60 rounded-xl p-3 mb-4">
             <p class="text-[10px] text-muted mb-1 uppercase tracking-widest">我的专属推广链接</p>
             <p class="text-xs text-white/80 font-mono truncate">
-              {{ `${$window?.location?.origin || ''}/shop/...?ref=${userId}` }}
+              {{ buildShareLink('YOUR_SHOP_ID', userId) }}
             </p>
           </div>
 
@@ -158,6 +216,105 @@ onMounted(() => {
           <div v-else-if="!earningsError" class="text-center py-3">
             <p class="text-muted text-xs">还没有佣金记录</p>
             <p class="text-muted text-xs mt-1">分享你的店铺链接，带来订单即可赚钱 💰</p>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ── 提现系统 ──────────────────────────────────────────────── -->
+      <section class="mb-6">
+        <h2 class="font-semibold text-sm mb-3">提现</h2>
+        <div class="card p-5 rounded-2xl space-y-4">
+
+          <!-- 余额行 -->
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-xs text-muted mb-1">可提现余额</p>
+              <div v-if="balance === null"
+                   class="h-7 w-20 bg-surface2 rounded animate-pulse" />
+              <p v-else class="text-2xl font-black text-white">
+                €{{ Number(balance).toFixed(2) }}
+              </p>
+            </div>
+            <div v-if="frozen > 0" class="text-right">
+              <p class="text-xs text-muted mb-1">提现中</p>
+              <p class="text-sm text-yellow-400 font-semibold">€{{ Number(frozen).toFixed(2) }}</p>
+            </div>
+          </div>
+
+          <!-- 提现表单 -->
+          <div class="space-y-3">
+            <div>
+              <label class="text-xs text-muted block mb-1">提现金额（最低 €10）</label>
+              <input
+                v-model="withdrawAmount"
+                type="number"
+                min="10"
+                step="1"
+                placeholder="0.00"
+                class="w-full h-11 rounded-xl px-3 text-sm bg-surface2
+                       border border-border text-white placeholder:text-muted
+                       focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <label class="text-xs text-muted block mb-1">收款账号（PayPal / 银行）</label>
+              <input
+                v-model="withdrawAcct"
+                type="text"
+                placeholder="paypal:your@email.com"
+                class="w-full h-11 rounded-xl px-3 text-sm bg-surface2
+                       border border-border text-white placeholder:text-muted
+                       focus:outline-none focus:border-accent"
+              />
+            </div>
+
+            <!-- 错误 / 成功提示 -->
+            <p v-if="withdrawError" class="text-xs text-danger">{{ withdrawError }}</p>
+            <p v-if="withdrawOk"    class="text-xs text-accent">✔ 提现申请已提交，1-3 个工作日处理</p>
+
+            <button
+              :disabled="withdrawing"
+              class="w-full h-11 rounded-full font-bold text-sm
+                     active:scale-95 transition-transform duration-100
+                     disabled:opacity-50 disabled:cursor-not-allowed"
+              style="background:#00FF88;color:#000"
+              @click="submitWithdraw"
+            >
+              {{ withdrawing ? '提交中…' : '申请提现' }}
+            </button>
+          </div>
+
+          <!-- 提现记录 -->
+          <div v-if="withdrawList.length" class="border-t border-border pt-4 space-y-2">
+            <p class="text-[10px] text-muted uppercase tracking-widest mb-2">提现记录</p>
+            <div
+              v-for="w in withdrawList.slice(0, 5)"
+              :key="w.id"
+              class="flex items-center justify-between text-sm"
+            >
+              <div>
+                <p class="text-xs font-mono text-muted truncate max-w-[160px]">
+                  {{ w.account }}
+                </p>
+                <p class="text-[10px] text-muted/60">
+                  {{ w.createdAt ? new Date(w.createdAt).toLocaleDateString('zh-CN') : '' }}
+                </p>
+              </div>
+              <div class="text-right">
+                <p class="font-semibold text-xs">€{{ Number(w.amount).toFixed(2) }}</p>
+                <p class="text-[10px]"
+                   :style="{
+                     color: w.status === 'success' ? '#00FF88'
+                          : w.status === 'reject'  ? '#FF6B6B'
+                          : '#F59E0B'
+                   }">
+                  {{ w.status === 'success' ? '已到账'
+                   : w.status === 'reject'  ? '已拒绝'
+                   : '处理中' }}
+                </p>
+              </div>
+            </div>
           </div>
 
         </div>

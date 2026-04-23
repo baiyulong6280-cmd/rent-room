@@ -15,6 +15,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getShop } from '@/api/shop'
 import { createOrder } from '@/api'
+import { initUserId, captureRef, getRefUser, buildShareLink, shareOrCopy } from '@/utils/user'
 
 import TemplateMinimal from '@/components/templates/TemplateMinimal.vue'
 import TemplateStreet  from '@/components/templates/TemplateStreet.vue'
@@ -46,7 +47,7 @@ const error    = ref('')
 const ordering = ref(false)
 
 // 当前用户 id（用于生成自己的分享链接）
-const MY_USER_ID = localStorage.getItem('deepay_uid') || 'u1'
+const MY_USER_ID = initUserId()
 
 // 选出模板组件（id 优先，type 兜底）
 const CurrentTemplate = computed(() =>
@@ -57,10 +58,7 @@ const CurrentTemplate = computed(() =>
 
 onMounted(async () => {
   // ── 裂变：首次写入推荐人，不覆盖已有值（防刷）──────────────────────
-  const incomingRef = route.query.ref
-  if (incomingRef && incomingRef !== MY_USER_ID && !localStorage.getItem('deepay_ref')) {
-    localStorage.setItem('deepay_ref', incomingRef)
-  }
+  captureRef(route.query.ref, MY_USER_ID)
 
   // ── 加载店铺数据 ──────────────────────────────────────────────────
   const shopId = route.params.id
@@ -115,7 +113,7 @@ async function onBuy() {
   ordering.value = true
   error.value    = ''
   try {
-    const refUser = localStorage.getItem('deepay_ref') || null
+    const refUser = getRefUser()
     const order   = await createOrder(route.params.id, amount, 'EUR', refUser)
     if (order?.payUrl) {
       window.location.href = order.payUrl
@@ -131,17 +129,8 @@ async function onBuy() {
 
 // ── 分享（带 ?ref=myUserId 裂变链接）─────────────────────────────────
 function onShare() {
-  const shopId = route.params.id
-  const link   = `${window.location.origin}/shop/${shopId}?ref=${MY_USER_ID}`
-  const title  = shop.value?.name || 'Deepay'
-
-  if (navigator.share) {
-    navigator.share({ title, url: link }).catch(() => {})
-  } else {
-    navigator.clipboard?.writeText(link)
-      .then(() => alert('分享链接已复制 🎉\n' + link))
-      .catch(() => alert('分享链接：\n' + link))
-  }
+  const link = buildShareLink(route.params.id, MY_USER_ID)
+  shareOrCopy(link, shop.value?.name || 'Deepay')
 }
 </script>
 
