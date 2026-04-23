@@ -19,11 +19,12 @@ http.interceptors.response.use(
  * Create a product purchase order.
  * Returns { orderId, payUrl }
  * @param {string} shopId
- * @param {number} amount  decimal e.g. 29.99
+ * @param {number} amount    decimal e.g. 29.99
  * @param {string} currency  e.g. 'EUR'
+ * @param {string|null} refUser  referral user id (first-touch attribution)
  */
-export function createOrder(shopId, amount, currency = 'EUR') {
-  return http.post('/api/order/create', { shopId, amount, currency })
+export function createOrder(shopId, amount, currency = 'EUR', refUser = null) {
+  return http.post('/api/order/create', { shopId, amount, currency, refUser })
 }
 
 /** Create a quota payment order → { payUrl, paymentId, priceEur } */

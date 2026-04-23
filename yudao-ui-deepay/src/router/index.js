@@ -7,6 +7,7 @@ import Shop            from '@/pages/Shop.vue'
 import Me              from '@/pages/Me.vue'
 import Landing         from '@/pages/Landing.vue'
 import PayResult       from '@/pages/PayResult.vue'
+import PayOrderResult  from '@/pages/PayOrderResult.vue'
 import Pay             from '@/pages/Pay.vue'
 
 const routes = [
@@ -18,9 +19,10 @@ const routes = [
   { path: '/shop/:id',     component: Shop,            meta: { title: '店铺' } },
   { path: '/me',           component: Me,              meta: { title: '我的' } },
 
-  // ── 支付（静态路由必须在动态路由前）────────────
-  { path: '/pay/result',   component: PayResult,       meta: { title: '支付完成' } },
-  { path: '/pay/:id',      component: Pay,             meta: { title: '支付结果' } },
+  // ── 支付（静态路由必须在动态路由前，避免参数捕获）──────────
+  { path: '/pay/result',        component: PayResult,       meta: { title: '支付完成' } },
+  { path: '/pay/order/result',  component: PayOrderResult,  meta: { title: '购买成功' } },
+  { path: '/pay/:id',           component: Pay,             meta: { title: '支付结果' } },
 
   // ── 备用宣传页 ────────────────────────────────
   { path: '/landing',      component: Landing,         meta: { title: 'Deepay · AI爆款' } },

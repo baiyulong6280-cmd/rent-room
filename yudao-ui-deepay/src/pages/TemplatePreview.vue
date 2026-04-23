@@ -19,6 +19,8 @@ const tpl = computed(() =>
 
 const opening = ref(false)
 
+const MY_USER_ID = localStorage.getItem('deepay_uid') || 'u1'
+
 async function createShopAndGo() {
   if (!tpl.value || opening.value) return
   opening.value = true
@@ -32,6 +34,18 @@ async function createShopAndGo() {
       style:      tpl.value.style,
       products:   tpl.value.products,
     })
+
+    // 开店成功 → 先弹分享，再跳店铺
+    const link  = `${window.location.origin}/shop/${shopId}?ref=${MY_USER_ID}`
+    const title = tpl.value.name || '我的店铺'
+    if (navigator.share) {
+      navigator.share({ title, url: link }).catch(() => {})
+    } else {
+      navigator.clipboard?.writeText(link)
+        .then(() => alert(`店铺已生成 🎉 分享链接已复制！\n\n${link}`))
+        .catch(() => alert(`店铺已生成 🎉\n分享链接：\n${link}`))
+    }
+
     router.push(`/shop/${shopId}`)
   } catch (_) {
     opening.value = false

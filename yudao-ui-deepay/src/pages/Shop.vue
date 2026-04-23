@@ -1,12 +1,14 @@
 <!--
   Shop.vue — 店铺总入口（路由层）
-  路径：/shop/:id
+  路径：/shop/:id?ref=userId
 
   逻辑：
   1. 先检查 localStorage shop_{id}（模板店 / AI店）
   2. 否则调 API 获取商品数据
   3. 根据 shop.id / shop.type 切换模板组件
-  4. buy 事件 → 跳转支付（MVP先占位）
+  4. buy 事件 → createOrder(shopId, amount, currency, refUser) → Jeepay payUrl
+  5. share 事件 → 生成带 ?ref=myUserId 的分享链接
+  6. ?ref= 首次写入 localStorage（不覆盖已有值，防多次覆盖）
 -->
 <script setup>
 import { ref, computed, onMounted } from 'vue'
@@ -43,6 +45,9 @@ const loading  = ref(true)
 const error    = ref('')
 const ordering = ref(false)
 
+// 当前用户 id（用于生成自己的分享链接）
+const MY_USER_ID = localStorage.getItem('deepay_uid') || 'u1'
+
 // 选出模板组件（id 优先，type 兜底）
 const CurrentTemplate = computed(() =>
   shop.value
@@ -51,6 +56,13 @@ const CurrentTemplate = computed(() =>
 )
 
 onMounted(async () => {
+  // ── 裂变：首次写入推荐人，不覆盖已有值（防刷）──────────────────────
+  const incomingRef = route.query.ref
+  if (incomingRef && incomingRef !== MY_USER_ID && !localStorage.getItem('deepay_ref')) {
+    localStorage.setItem('deepay_ref', incomingRef)
+  }
+
+  // ── 加载店铺数据 ──────────────────────────────────────────────────
   const shopId = route.params.id
   try {
     const data = await getShop(shopId)
@@ -94,22 +106,17 @@ async function onBuy() {
   const product = shop.value.products?.[0] || {}
   const amount  = Number(product.price) || 0
 
-  // 未接后端时的占位（amount 为 0 说明是纯展示模板，暂不支持支付）
+  // 未设价格时退化为分享（纯展示模板）
   if (!amount) {
-    const url = window.location.href
-    if (navigator.share) {
-      navigator.share({ title: shop.value.name || 'Deepay', url })
-    } else {
-      navigator.clipboard?.writeText(url).then(() => alert('链接已复制 🎉'))
-        .catch(() => alert('店铺已生成！分享链接：\n' + url))
-    }
+    onShare()
     return
   }
 
   ordering.value = true
   error.value    = ''
   try {
-    const order = await createOrder(route.params.id, amount, 'EUR')
+    const refUser = localStorage.getItem('deepay_ref') || null
+    const order   = await createOrder(route.params.id, amount, 'EUR', refUser)
     if (order?.payUrl) {
       window.location.href = order.payUrl
     } else {
@@ -119,6 +126,21 @@ async function onBuy() {
     error.value = '下单失败，请检查网络后重试'
   } finally {
     ordering.value = false
+  }
+}
+
+// ── 分享（带 ?ref=myUserId 裂变链接）─────────────────────────────────
+function onShare() {
+  const shopId = route.params.id
+  const link   = `${window.location.origin}/shop/${shopId}?ref=${MY_USER_ID}`
+  const title  = shop.value?.name || 'Deepay'
+
+  if (navigator.share) {
+    navigator.share({ title, url: link }).catch(() => {})
+  } else {
+    navigator.clipboard?.writeText(link)
+      .then(() => alert('分享链接已复制 🎉\n' + link))
+      .catch(() => alert('分享链接：\n' + link))
   }
 }
 </script>
@@ -152,11 +174,7 @@ async function onBuy() {
       :is="CurrentTemplate"
       :shop="shop"
       @buy="onBuy"
-      @share="() => {
-        const url = window.location.href
-        if (navigator.share) navigator.share({ title: shop.name, url })
-        else navigator.clipboard?.writeText(url).then(() => alert('链接已复制'))
-      }"
+      @share="onShare"
     />
 
   </div>
