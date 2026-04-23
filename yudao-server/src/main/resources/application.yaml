@@ -351,3 +351,9 @@ yudao:
       type: redis # 消息总线的类型
 
 debug: false
+# Deepay 模块配置
+deepay:
+  ima:
+    enabled: false          # 是否启用 ima 知识库同步；true 时需要填写 api-key
+    base-url: https://ima.qq.com
+    api-key: ""             # 替换为真实的 ima API Key
