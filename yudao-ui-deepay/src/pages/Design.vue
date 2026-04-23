@@ -9,9 +9,10 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { createGenerateTask, getTaskResult, selectImage, getQuotaInfo } from '@/api'
 import PaywallModal from './PaywallModal.vue'
+import { initUserId } from '@/utils/user'
 
 // ── State ──────────────────────────────────────────────────────────────
-const USER_ID = 'u1' // TODO: 从登录态/localStorage 读取
+const USER_ID = initUserId()
 
 const category   = ref('外套')
 const style      = ref('工装')

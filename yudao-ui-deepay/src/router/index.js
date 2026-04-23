@@ -16,6 +16,9 @@ const routes = [
   // ── 公开路由 ──────────────────────────────────
   { path: '/',             component: Home,            meta: { title: 'Deepay · 开店' } },
   { path: '/generate',     component: Generate,        meta: { title: 'AI生成' } },
+  { path: '/redesign',     component: () => import('@/pages/Redesign.vue'),     meta: { title: 'AI改款设计' } },
+  { path: '/inspiration',  component: () => import('@/pages/Inspiration.vue'),  meta: { title: '时装灵感库' } },
+  { path: '/ai/design',    component: () => import('@/pages/AiDesign.vue'),     meta: { title: 'AI出款工具' } },
   { path: '/template',     component: Template,        meta: { title: '模板' } },
   { path: '/template/:id', component: TemplatePreview, meta: { title: '模板预览' } },
   { path: '/shop/:id',     component: Shop,            meta: { title: '店铺' } },
@@ -33,6 +36,19 @@ const routes = [
 
   // ── 备用宣传页 ────────────────────────────────
   { path: '/landing',      component: Landing,         meta: { title: 'Deepay · AI爆款' } },
+
+  // ── 份额 ──────────────────────────────────────
+  { path: '/share',        component: () => import('@/pages/Share.vue'), meta: { title: '购买份额', requiresAuth: true } },
+
+  { path: '/ai/season',   component: () => import('@/pages/AiSeason.vue'),  meta: { title: '整季系列生成' } },
+  { path: '/ai/techpack', component: () => import('@/pages/TechPack.vue'),  meta: { title: '设计稿' } },
+
+  { path: '/design',        component: () => import('@/pages/AiPipeline.vue'),  meta: { title: 'AI设计流水线' } },
+  { path: '/design/detail', component: () => import('@/pages/DesignDetail.vue'), meta: { title: '设计稿' } },
+  { path: '/brand',         component: () => import('@/pages/Brand.vue'),        meta: { title: '品牌风格' } },
+
+    // ── 404 ───────────────────────────────────────
+  { path: '/:pathMatch(.*)*', component: () => import('@/pages/NotFound.vue'), meta: { title: '页面不存在' } },
 ]
 
 const router = createRouter({

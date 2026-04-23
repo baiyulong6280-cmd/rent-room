@@ -166,6 +166,54 @@ const myShops = computed(() => {
         </div>
       </section>
 
+      <!-- ── AI 设计系统 ───────────────────────────── -->
+      <section class="mb-8">
+        <h2 class="font-semibold text-sm mb-3">AI 设计系统</h2>
+        <div class="grid grid-cols-2 gap-3">
+
+          <button
+            class="card p-4 text-left active:scale-95 transition-transform duration-100 hover:border-accent"
+            style="border:1px solid #222"
+            @click="router.push('/ai/design')"
+          >
+            <span class="text-2xl mb-2 block">🎯</span>
+            <p class="font-semibold text-sm">AI出款</p>
+            <p class="text-muted text-xs mt-0.5">可控出款，系列生成</p>
+          </button>
+
+          <button
+            class="card p-4 text-left active:scale-95 transition-transform duration-100 hover:border-accent"
+            style="border:1px solid #222"
+            @click="router.push('/inspiration')"
+          >
+            <span class="text-2xl mb-2 block">🎭</span>
+            <p class="font-semibold text-sm">灵感库</p>
+            <p class="text-xs mt-0.5" style="color:#A855F7">精选秀场 + 品牌图</p>
+          </button>
+
+          <button
+            class="card p-4 text-left active:scale-95 transition-transform duration-100 hover:border-accent"
+            style="border:1px solid #222"
+            @click="router.push('/ai/season')"
+          >
+            <span class="text-2xl mb-2 block">🌿</span>
+            <p class="font-semibold text-sm">整季系列</p>
+            <p class="text-muted text-xs mt-0.5">一键生成 A/B/C</p>
+          </button>
+
+          <button
+            class="card p-4 text-left active:scale-95 transition-transform duration-100 hover:border-accent"
+            style="border:1px solid #222"
+            @click="router.push('/redesign')"
+          >
+            <span class="text-2xl mb-2 block">🔧</span>
+            <p class="font-semibold text-sm">改款工具</p>
+            <p class="text-muted text-xs mt-0.5">参考图 → 新款</p>
+          </button>
+
+        </div>
+      </section>
+
       <!-- ── 快捷入口 ─────────────────────────────── -->
       <section class="mb-8">
         <h2 class="font-semibold text-sm mb-3">快捷入口</h2>
@@ -189,6 +237,24 @@ const myShops = computed(() => {
             <span class="text-2xl mb-2 block">🎨</span>
             <p class="font-semibold text-sm">AI设计</p>
             <p class="text-muted text-xs mt-0.5">每日 {{ remainFree }} 次免费</p>
+          </button>
+
+          <button
+            class="card p-4 text-left active:scale-95 transition-transform duration-100"
+            @click="router.push('/redesign')"
+          >
+            <span class="text-2xl mb-2 block">✏️</span>
+            <p class="font-semibold text-sm">AI改款</p>
+            <p class="text-muted text-xs mt-0.5">上传参考图改款</p>
+          </button>
+
+          <button
+            class="card p-4 text-left active:scale-95 transition-transform duration-100"
+            @click="router.push('/inspiration')"
+          >
+            <span class="text-2xl mb-2 block">🎭</span>
+            <p class="font-semibold text-sm">灵感库</p>
+            <p class="text-muted text-xs mt-0.5" style="color:#A855F7">秀场 + 品牌图</p>
           </button>
 
           <button
