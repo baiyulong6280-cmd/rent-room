@@ -72,9 +72,16 @@ public class DeepayPayController {
 
         // TODO: 调用 Jeepay/Stripe 创建支付，获取真实 payUrl
         // 当前为占位实现：返回模拟 payUrl（参数已 URL 编码，防注入/解析错误）
-        String encodedPlan   = URLEncoder.encode(plan.name(),                                            StandardCharsets.UTF_8);
-        String encodedUserId = URLEncoder.encode(req.getUserId() != null ? req.getUserId() : "",         StandardCharsets.UTF_8);
-        String encodedPrice  = URLEncoder.encode(plan.priceEur,                                          StandardCharsets.UTF_8);
+        String encodedPlan;
+        String encodedUserId;
+        String encodedPrice;
+        try {
+            encodedPlan   = URLEncoder.encode(plan.name(),                                            "UTF-8");
+            encodedUserId = URLEncoder.encode(req.getUserId() != null ? req.getUserId() : "",         "UTF-8");
+            encodedPrice  = URLEncoder.encode(plan.priceEur,                                          "UTF-8");
+        } catch (java.io.UnsupportedEncodingException ex) {
+            throw new IllegalStateException("UTF-8 encoding not supported", ex);
+        }
         String payUrl = "https://pay.deepay.link/checkout?paymentId=" + paymentId
                 + "&plan="    + encodedPlan
                 + "&price="   + encodedPrice

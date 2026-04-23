@@ -425,7 +425,7 @@ public class DeepayDesignController {
     @PostMapping("/ai/updateDetail")
     @Operation(summary = "AI 局部细节修改：只改指定控制项，其他不变")
     public CommonResult<Map<String, Object>> updateDetail(@RequestBody UpdateDetailReqVO req) {
-        if (req.getImage() == null || req.getImage().isBlank()) {
+        if (req.getImage() == null || req.getImage().trim().isEmpty()) {
             Map<String, Object> r = new LinkedHashMap<>();
             r.put("error", "image 不能为空");
             r.put("code",  400);
@@ -530,7 +530,7 @@ public class DeepayDesignController {
     @PostMapping("/ai/refine")
     @Operation(summary = "AI 精修：对选中的好图再生成 3 张设计师级升级版")
     public CommonResult<Map<String, Object>> refineImage(@RequestBody RefineReqVO req) {
-        if (req.getImage() == null || req.getImage().isBlank()) {
+        if (req.getImage() == null || req.getImage().trim().isEmpty()) {
             Map<String, Object> r = new LinkedHashMap<>();
             r.put("error", "image 不能为空");
             r.put("code",  400);
@@ -589,7 +589,7 @@ public class DeepayDesignController {
     @PostMapping("/ai/recolor")
     @Operation(summary = "AI 改色：只改颜色方案，结构不变")
     public CommonResult<Map<String, Object>> recolorImage(@RequestBody RecolorReqVO req) {
-        if (req.getImage() == null || req.getImage().isBlank()) {
+        if (req.getImage() == null || req.getImage().trim().isEmpty()) {
             Map<String, Object> r = new LinkedHashMap<>();
             r.put("error", "image 不能为空");
             r.put("code",  400);
@@ -622,13 +622,13 @@ public class DeepayDesignController {
     @PostMapping("/ai/edit")
     @Operation(summary = "AI 微调：对选中图片执行文字指令修改")
     public CommonResult<Map<String, Object>> editImage(@RequestBody EditReqVO req) {
-        if (req.getImage() == null || req.getImage().isBlank()) {
+        if (req.getImage() == null || req.getImage().trim().isEmpty()) {
             Map<String, Object> r = new LinkedHashMap<>();
             r.put("error", "image 不能为空");
             r.put("code",  400);
             return success(r);
         }
-        if (req.getInstruction() == null || req.getInstruction().isBlank()) {
+        if (req.getInstruction() == null || req.getInstruction().trim().isEmpty()) {
             Map<String, Object> r = new LinkedHashMap<>();
             r.put("error", "instruction 不能为空");
             r.put("code",  400);
@@ -676,7 +676,7 @@ public class DeepayDesignController {
     @PostMapping("/design/save")
     @Operation(summary = "保存选中图片到用户款库")
     public CommonResult<Map<String, Object>> saveDesign(@RequestBody SaveDesignReqVO req) {
-        if (req.getImageUrl() == null || req.getImageUrl().isBlank()) {
+        if (req.getImageUrl() == null || req.getImageUrl().trim().isEmpty()) {
             Map<String, Object> r = new LinkedHashMap<>();
             r.put("error", "imageUrl 不能为空");
             r.put("code",  400);
@@ -1255,7 +1255,7 @@ public class DeepayDesignController {
     }
 
     private double tokenOverlap(String a, String b) {
-        if (a.isBlank() || b.isBlank()) return 0.0;
+        if (a.trim().isEmpty() || b.trim().isEmpty()) return 0.0;
         Set<String> setA = new HashSet<>(Arrays.asList(a.split("[/\\-_?&=.]+")));
         Set<String> setB = new HashSet<>(Arrays.asList(b.split("[/\\-_?&=.]+")));
         long common = setA.stream().filter(setB::contains).count();
@@ -1338,7 +1338,7 @@ public class DeepayDesignController {
     // POST /api/ai/styleProfile/create — 创建品牌风格档案
     @Operation(summary = "创建品牌风格档案（品牌调性 + 禁止项）")
     public CommonResult<Map<String, Object>> createStyleProfile(@RequestBody StyleProfileReqVO req) {
-        if (req.getName() == null || req.getName().isBlank()) {
+        if (req.getName() == null || req.getName().trim().isEmpty()) {
             Map<String, Object> r = new LinkedHashMap<>();
             r.put("error", "name 不能为空");
             r.put("code",  400);
@@ -1411,7 +1411,11 @@ public class DeepayDesignController {
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("season",     season);
         resp.put("total",      allImages.size());
-        resp.put("seriesNames", Map.of("A","基础款","B","设计款","C","变化款"));
+        Map<String, String> seriesNames = new java.util.LinkedHashMap<>();
+        seriesNames.put("A", "基础款");
+        seriesNames.put("B", "设计款");
+        seriesNames.put("C", "变化款");
+        resp.put("seriesNames", seriesNames);
         resp.put("style",      style);
         resp.put("controls",   controls);
         return success(resp);
@@ -1611,7 +1615,7 @@ public class DeepayDesignController {
     private static final int BAD_THRESHOLD = 40;
 
     private int computeScore(String url, String style) {
-        if (url == null || url.isBlank()) return 0;
+        if (url == null || url.trim().isEmpty()) return 0;
 
         int score = 0;
         String lower = url.toLowerCase();
@@ -1630,7 +1634,7 @@ public class DeepayDesignController {
         String[] styleWords = styleKeywords.split("[,\\s]+");
         int styleHits = 0;
         for (String kw : styleWords) {
-            if (!kw.isBlank() && lower.contains(kw.toLowerCase())) styleHits++;
+            if (!kw.trim().isEmpty() && lower.contains(kw.toLowerCase())) styleHits++;
         }
         score += Math.min(25, styleHits * 5 + 10); // base 10 + 5 per keyword hit, cap 25
 
@@ -1673,7 +1677,7 @@ public class DeepayDesignController {
      *   editorial → +5
      */
     private int computeInspirationScore(String url, String source) {
-        if (url == null || url.isBlank()) return 0;
+        if (url == null || url.trim().isEmpty()) return 0;
         String lower = url.toLowerCase();
         int score = 0;
 
@@ -1754,7 +1758,7 @@ public class DeepayDesignController {
      *   ❌ complex background
      */
     private String inspectionRejectReason(String url) {
-        if (url == null || url.isBlank()) return "empty_url";
+        if (url == null || url.trim().isEmpty()) return "empty_url";
         String lower = url.toLowerCase();
         if (lower.contains("watermark") || lower.contains("wm=")
                 || lower.contains("logo=") || lower.contains("copyright")) return "watermark";
@@ -1836,7 +1840,7 @@ public class DeepayDesignController {
     // ── Season generation helpers ────────────────────────────────────────
 
     private String deriveStyleFromProfile(String profileId, String fallbackStyle) {
-        if (fallbackStyle != null && !fallbackStyle.isBlank()) return fallbackStyle.toLowerCase();
+        if (fallbackStyle != null && !fallbackStyle.trim().isEmpty()) return fallbackStyle.toLowerCase();
         if (profileId != null && profileId.contains("luxury"))  return "luxury";
         if (profileId != null && profileId.contains("minimal")) return "minimal";
         return "minimal";
@@ -2059,7 +2063,7 @@ public class DeepayDesignController {
                 style != null ? style.toLowerCase() : "minimal",
                 STYLE_PROMPT_MAP.get("minimal"));
 
-        String refineNote = (note != null && !note.isBlank()) ? " Additional note: " + note.trim() + "." : "";
+        String refineNote = (note != null && !note.trim().isEmpty()) ? " Additional note: " + note.trim() + "." : "";
 
         return styleDesc
                 + " You are a senior fashion designer refining an existing design draft."
@@ -2228,7 +2232,7 @@ public class DeepayDesignController {
     @PostMapping("/ai/generateTechPack")
     @Operation(summary = "生成可打版设计稿（Tech Pack）：款式说明 + 版型 + 细节 + 面料 + 颜色 + 打版备注")
     public CommonResult<Map<String, Object>> generateTechPack(@RequestBody TechPackReqVO req) {
-        if (req.getImage() == null || req.getImage().isBlank()) {
+        if (req.getImage() == null || req.getImage().trim().isEmpty()) {
             Map<String, Object> r = new LinkedHashMap<>();
             r.put("error", "image 不能为空");
             r.put("code",  400);

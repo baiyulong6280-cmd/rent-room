@@ -35,7 +35,7 @@ public class Spider1688Service {
      * @return TrendItem 列表，至少返回 fallback 数据
      */
     public List<TrendItem> fetch(String category) {
-        if (apiUrl != null && !apiUrl.isBlank()) {
+        if (apiUrl != null && !apiUrl.trim().isEmpty()) {
             try {
                 return fetchFromApi(category);
             } catch (Exception e) {

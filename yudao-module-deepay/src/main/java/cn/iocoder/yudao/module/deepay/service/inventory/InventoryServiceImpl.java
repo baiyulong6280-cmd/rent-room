@@ -161,7 +161,10 @@ public class InventoryServiceImpl implements InventoryService {
     private void triggerProduction(String chainCode) {
         try {
             log.warn("InventoryService: 库存耗尽，自动触发生产，chainCode={}", chainCode);
-            patternAgent.triggerProduction(chainCode);
+            cn.iocoder.yudao.module.deepay.agent.Context ctx =
+                    new cn.iocoder.yudao.module.deepay.agent.Context();
+            ctx.chainCode = chainCode;
+            patternAgent.run(ctx);
         } catch (Exception e) {
             // 生产触发失败不影响主流程
             log.error("InventoryService: 触发生产失败，chainCode={}", chainCode, e);
