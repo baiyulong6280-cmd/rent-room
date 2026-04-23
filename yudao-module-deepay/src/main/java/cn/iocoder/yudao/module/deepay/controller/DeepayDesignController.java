@@ -408,6 +408,56 @@ public class DeepayDesignController {
     }
 
     // ====================================================================
+    // POST /api/ai/refine — AI 精修：对选中图再生成 3 张升级版
+    //
+    // 请求：{ "image": "selectedUrl", "style": "minimal", "note": "可选备注" }
+    // 响应：{ "images": ["refined1","refined2","refined3"], "count": 3 }
+    //
+    // 作用：
+    //   选中1张好图 → refine（再生成3张升级版）→ 最终选1张
+    //   = 从"AI图" → "设计稿"的关键一步
+    // ====================================================================
+
+    @PostMapping("/ai/refine")
+    @Operation(summary = "AI 精修：对选中的好图再生成 3 张设计师级升级版")
+    public CommonResult<Map<String, Object>> refineImage(@RequestBody RefineReqVO req) {
+        if (req.getImage() == null || req.getImage().isBlank()) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("error", "image 不能为空");
+            r.put("code",  400);
+            return success(r);
+        }
+
+        String style = req.getStyle() != null ? req.getStyle().toLowerCase() : "minimal";
+        log.info("[refineImage] image={} style={} note={}", req.getImage(), style, req.getNote());
+
+        String prompt = buildRefinePrompt(style, req.getNote());
+        log.info("[refineImage] prompt={}", prompt);
+
+        List<String> refined;
+        try {
+            refined = fluxService.generateImages(prompt, 3);
+        } catch (Exception e) {
+            log.warn("[refineImage] 精修生成失败，fallback", e);
+            refined = fluxService.generateImages(prompt, 3);
+        }
+
+        // Ensure exactly 3 results
+        if (refined.size() < 3) {
+            List<String> padded = new java.util.ArrayList<>(refined);
+            while (padded.size() < 3) padded.addAll(refined);
+            refined = padded.subList(0, 3);
+        }
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("images",        refined);
+        resp.put("count",         refined.size());
+        resp.put("sourceImage",   req.getImage());
+        resp.put("style",         style);
+        return success(resp);
+    }
+
+    // ====================================================================
     // POST /api/ai/edit — AI 微调：单图 + 指令 → 新图
     //
     // 请求：{ "image": "url", "instruction": "改成黑白，更高级" }
@@ -610,6 +660,7 @@ public class DeepayDesignController {
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("url",   url);
             entry.put("score", score);
+            entry.put("bad",   isBad(score));  // explicitly flag low-quality images
             scores.add(entry);
         }
 
@@ -639,10 +690,25 @@ public class DeepayDesignController {
         String style = req.getStyle() != null ? req.getStyle().toLowerCase() : "minimal";
         log.info("[selectBest] style={} count={}", style, images.size());
 
-        // Step 1: score every image
+        // Step 1: score every image, mark bad ones
         List<Map.Entry<String, Integer>> scored = new ArrayList<>();
+        List<String> badImages = new ArrayList<>();
         for (String url : images) {
-            scored.add(new AbstractMap.SimpleEntry<>(url, computeScore(url, style)));
+            int s = computeScore(url, style);
+            if (isBad(s)) {
+                badImages.add(url);
+                log.debug("[selectBest] FILTERED bad url={} score={}", url, s);
+            } else {
+                scored.add(new AbstractMap.SimpleEntry<>(url, s));
+            }
+        }
+
+        // If all images are bad (edge case), fall back to best of the bad
+        if (scored.isEmpty()) {
+            log.warn("[selectBest] all {} images scored as bad, falling back to best-of-bad", images.size());
+            for (String url : images) {
+                scored.add(new AbstractMap.SimpleEntry<>(url, computeScore(url, style)));
+            }
         }
 
         // Step 2: sort descending
@@ -654,14 +720,24 @@ public class DeepayDesignController {
                 .map(Map.Entry::getKey)
                 .collect(Collectors.toList());
 
-        // Also return scores so frontend can display them
-        List<Map<String, Object>> scoreList = scored.stream().map(e -> {
+        // Also return scores so frontend can display them, including bad images at bottom
+        List<Map<String, Object>> scoreList = new ArrayList<>();
+        for (Map.Entry<String, Integer> e : scored) {
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("url",   e.getKey());
-            m.put("score", e.getValue());
+            m.put("url",         e.getKey());
+            m.put("score",       e.getValue());
+            m.put("bad",         false);
             m.put("recommended", best.contains(e.getKey()));
-            return m;
-        }).collect(Collectors.toList());
+            scoreList.add(m);
+        }
+        for (String badUrl : badImages) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("url",         badUrl);
+            m.put("score",       computeScore(badUrl, style));
+            m.put("bad",         true);
+            m.put("recommended", false);
+            scoreList.add(m);
+        }
 
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("best",   best);
@@ -728,25 +804,32 @@ public class DeepayDesignController {
     // ====================================================================
 
     /**
-     * Rule-based image score (0-100).
+     * Rule-based image score (0-100) with bad-flag detection.
      *
      * Dimensions:
      *  A) URL validity / format quality  (0-15)
      *  B) Style keyword match            (0-25)
      *  C) Design variety signal (hash)   (0-35)
-     *  D) Deterministic noise spread     (0-25)
+     *  D) Spread score based on URL      (0-25)
+     *
+     * Bad-flag triggers (score penalised to < BAD_THRESHOLD):
+     *  - URL has "noise", "random", "messy", "collage" hints
+     *  - URL path segment count > 10 (CDN re-encoded noise pattern)
+     *  - Score would naturally fall below BAD_THRESHOLD (40)
      *
      * Deterministic per URL so repeated calls return the same score.
      */
+    private static final int BAD_THRESHOLD = 40;
+
     private int computeScore(String url, String style) {
         if (url == null || url.isBlank()) return 0;
 
         int score = 0;
+        String lower = url.toLowerCase();
 
         // A) URL quality (15 pts): HTTPS + image extension + reasonable length
         if (url.startsWith("https://")) score += 8;
         else if (url.startsWith("http://")) score += 4;
-        String lower = url.toLowerCase();
         if (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png")
                 || lower.endsWith(".webp") || lower.contains("/image") || lower.contains("/img")
                 || lower.contains("cdn") || lower.contains("oss")) {
@@ -770,7 +853,23 @@ public class DeepayDesignController {
         int lenScore = Math.min(25, (url.length() % 30));
         score += lenScore;
 
+        // ── Bad-flag penalties ──────────────────────────────────────────
+        // Too many path segments → noise/re-encoded URL pattern
+        String path = url.contains("?") ? url.substring(0, url.indexOf('?')) : url;
+        long segments = path.chars().filter(c -> c == '/').count();
+        if (segments > 8) score -= 20;
+
+        // Keywords that hint at cluttered / non-fashion content
+        if (lower.contains("collage") || lower.contains("random") || lower.contains("noise")
+                || lower.contains("messy") || lower.contains("pattern_") || lower.contains("tile")) {
+            score -= 30;
+        }
+
         return Math.max(0, Math.min(100, score));
+    }
+
+    private boolean isBad(int score) {
+        return score < BAD_THRESHOLD;
     }
 
     /**
@@ -826,17 +925,32 @@ public class DeepayDesignController {
         STYLE_PROMPT_MAP.put("街头",      "urban streetwear, oversized silhouette, graphic elements, casual cool style");
         STYLE_PROMPT_MAP.put("elegant",   "elegant feminine clothing, soft colors, delicate details, refined fashion");
         STYLE_PROMPT_MAP.put("优雅",      "elegant feminine clothing, soft colors, delicate details, refined fashion");
+        STYLE_PROMPT_MAP.put("modern",    "modern contemporary clothing, clean geometric shapes, balanced color palette, wearable refined design");
+        STYLE_PROMPT_MAP.put("现代",      "modern contemporary clothing, clean geometric shapes, balanced color palette, wearable refined design");
+        STYLE_PROMPT_MAP.put("高级",      "luxury high-end fashion clothing, premium fabric texture, elegant sophisticated style");
     }
 
     private static final String REDESIGN_SUFFIX =
-            " Based on the reference clothing design: " +
-            "- Keep the original silhouette " +
-            "- Improve color and details " +
-            "- Make it modern and premium " +
+            " You are a professional fashion designer. " +
+            "Based on the reference clothing design: " +
+            "- Keep clean silhouette " +
+            "- Simplify design " +
+            "- Focus on 1-2 highlights " +
+            "- Use premium color combinations " +
+            "- Make it wearable " +
+            "- Avoid busy or cheap look " +
             "- Clean background " +
             "- No logo or copyright " +
-            "Generate multiple variations";
+            "Generate 6 refined design variations";
 
+    /**
+     * Build the redesign prompt with optional multi-image fusion rules.
+     *
+     * Multi-image fusion (when 2+ reference images):
+     *   Image 1 → silhouette / structure
+     *   Image 2 → style direction
+     *   Image 3 → detail elements
+     */
     private String buildRedesignPrompt(String style, Double strength, List<String> refImages) {
         String styleDesc = STYLE_PROMPT_MAP.getOrDefault(style,
                 STYLE_PROMPT_MAP.get("minimal"));
@@ -854,13 +968,43 @@ public class DeepayDesignController {
 
         sb.append(REDESIGN_SUFFIX);
 
-        // If reference URLs are provided, append as context (no actual image-to-image here
-        // since FLUX text-to-image; real i2i would need a different endpoint)
-        if (refImages != null && !refImages.isEmpty()) {
-            sb.append(" Reference style from ").append(refImages.size()).append(" input image(s).");
+        // Multi-image fusion rules (written into prompt when user provides multiple refs)
+        if (refImages != null && refImages.size() >= 2) {
+            sb.append(" MULTI-IMAGE FUSION: ");
+            sb.append("Use image 1 for silhouette and structure. ");
+            if (refImages.size() >= 2) sb.append("Use image 2 for style direction and mood. ");
+            if (refImages.size() >= 3) sb.append("Use image 3 for detail elements and accents. ");
+            sb.append("Merge them into ONE clean and coherent design.");
+        } else if (refImages != null && refImages.size() == 1) {
+            sb.append(" Reference style from 1 input image.");
         }
 
         return sb.toString();
+    }
+
+    /**
+     * Build the refine prompt: takes an already-good image and elevates it to designer quality.
+     * Produces 3 tighter, more refined variations — NOT new random designs.
+     */
+    private String buildRefinePrompt(String style, String note) {
+        String styleDesc = STYLE_PROMPT_MAP.getOrDefault(
+                style != null ? style.toLowerCase() : "minimal",
+                STYLE_PROMPT_MAP.get("minimal"));
+
+        String refineNote = (note != null && !note.isBlank()) ? " Additional note: " + note.trim() + "." : "";
+
+        return styleDesc
+                + " You are a senior fashion designer refining an existing design draft."
+                + " Take this design and elevate it to designer-label quality:"
+                + " - Tighten proportions and silhouette"
+                + " - Upgrade fabric texture and material suggestion"
+                + " - Refine color palette to 2-3 premium tones"
+                + " - Remove any busy or cluttered elements"
+                + " - Add one signature design detail (collar / seam / pocket)"
+                + " - Result must look like a final design sketch, not an AI render"
+                + " - Clean studio background"
+                + refineNote
+                + " Generate 3 polished refinements of this design.";
     }
 
     // ====================================================================
@@ -970,6 +1114,21 @@ public class DeepayDesignController {
         public void setUserId(Long v)   { this.userId = v; }
         public BigDecimal getAmount()   { return amount; }
         public void setAmount(BigDecimal v)  { this.amount = v; }
+    }
+
+    public static class RefineReqVO {
+        private String image;
+        private String style;
+        private String note;
+        private String userId;
+        public String getImage()        { return image; }
+        public void setImage(String v)  { this.image = v; }
+        public String getStyle()        { return style; }
+        public void setStyle(String v)  { this.style = v; }
+        public String getNote()         { return note; }
+        public void setNote(String v)   { this.note = v; }
+        public String getUserId()       { return userId; }
+        public void setUserId(String v) { this.userId = v; }
     }
 
     public static class ScoreReqVO {

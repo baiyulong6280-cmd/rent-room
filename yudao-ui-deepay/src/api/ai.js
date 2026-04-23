@@ -103,6 +103,15 @@ export function deduplicateImages(params) {
 }
 
 /**
+ * AI 精修：对选中的好图再生成 3 张设计师级升级版
+ * @param {{ image: string, style?: string, note?: string, userId?: string }} params
+ * @returns {Promise<{ images: string[], count: number, sourceImage: string, style: string }>}
+ */
+export function refineImage(params) {
+  return http.post('/api/ai/refine', params)
+}
+
+/**
  * 保存选中图片到用户款库
  * @param {{ imageUrl: string, category?: string, style?: string, userId?: string, source?: string }} params
  * @returns {Promise<{ id: number, imageUrl: string, status: string }>}

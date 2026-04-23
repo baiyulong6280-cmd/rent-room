@@ -18,6 +18,7 @@ const routes = [
   { path: '/generate',     component: Generate,        meta: { title: 'AI生成' } },
   { path: '/redesign',     component: () => import('@/pages/Redesign.vue'),     meta: { title: 'AI改款设计' } },
   { path: '/inspiration',  component: () => import('@/pages/Inspiration.vue'),  meta: { title: '时装灵感库' } },
+  { path: '/ai/design',    component: () => import('@/pages/AiDesign.vue'),     meta: { title: 'AI出款工具' } },
   { path: '/template',     component: Template,        meta: { title: '模板' } },
   { path: '/template/:id', component: TemplatePreview, meta: { title: '模板预览' } },
   { path: '/shop/:id',     component: Shop,            meta: { title: '店铺' } },
