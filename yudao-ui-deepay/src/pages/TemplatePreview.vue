@@ -1,11 +1,14 @@
 <!--
   TemplatePreview.vue — 模拟店铺预览 + 一键开店
   路径：/template/:id
+
+  规则：所有颜色绑定 tpl.theme.*，不写死
 -->
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { templates } from '@/data/templates'
+import { createShop } from '@/api/shop'
 
 const route  = useRoute()
 const router = useRouter()
@@ -16,16 +19,23 @@ const tpl = computed(() =>
 
 const opening = ref(false)
 
-function createShop() {
+async function createShopAndGo() {
   if (!tpl.value || opening.value) return
   opening.value = true
-
-  const shopId = Date.now()
-  localStorage.setItem(`shop_${shopId}`, JSON.stringify(tpl.value))
-
-  setTimeout(() => {
+  try {
+    const { shopId } = await createShop({
+      templateId: tpl.value.id,
+      type:       tpl.value.type,
+      name:       tpl.value.name,
+      theme:      tpl.value.theme,
+      gradient:   tpl.value.gradient,
+      style:      tpl.value.style,
+      products:   tpl.value.products,
+    })
     router.push(`/shop/${shopId}`)
-  }, 600)
+  } catch (_) {
+    opening.value = false
+  }
 }
 
 function share() {
@@ -40,21 +50,37 @@ function share() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-bg text-white">
+  <!-- 整页背景由模板主题控制 -->
+  <div
+    class="min-h-screen"
+    :style="tpl ? { background: tpl.theme.bg, color: tpl.theme.text } : {}"
+  >
 
-    <!-- 顶部导航 -->
-    <header class="sticky top-0 z-10 bg-bg/90 backdrop-blur-md
-                   border-b border-border px-4 py-3
-                   flex items-center justify-between">
-      <button class="text-muted active:text-white transition-colors"
-              @click="router.back()">
+    <!-- 顶部导航（主题色边框）-->
+    <header
+      class="sticky top-0 z-10 backdrop-blur-md px-4 py-3
+             flex items-center justify-between"
+      :style="tpl ? {
+        background: tpl.theme.bg + 'E6',
+        borderBottom: `1px solid ${tpl.theme.border}`
+      } : {}"
+    >
+      <button
+        class="active:opacity-60 transition-opacity"
+        :style="tpl ? { color: tpl.theme.subText } : {}"
+        @click="router.back()"
+      >
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24"
              stroke="currentColor" stroke-width="2.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
         </svg>
       </button>
       <span class="font-semibold text-sm">{{ tpl?.name || '模板预览' }}</span>
-      <button class="text-muted active:text-white transition-colors" @click="share">
+      <button
+        class="active:opacity-60 transition-opacity"
+        :style="tpl ? { color: tpl.theme.subText } : {}"
+        @click="share"
+      >
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24"
              stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round"
@@ -67,48 +93,60 @@ function share() {
     <div v-if="!tpl"
          class="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-6">
       <p class="text-4xl">🤔</p>
-      <p class="text-muted text-sm">模板不存在</p>
-      <button class="btn-primary max-w-[200px]"
-              @click="router.push('/template')">
+      <p class="text-sm opacity-60">模板不存在</p>
+      <button
+        class="h-12 px-8 rounded-full font-bold text-sm"
+        style="background:#00FF88;color:#000"
+        @click="router.push('/template')"
+      >
         返回模板列表
       </button>
     </div>
 
-    <!-- 模拟店铺预览（留出底部固定栏空间）-->
+    <!-- 模拟店铺预览 -->
     <template v-else>
       <div class="pb-28">
 
-        <!-- 店铺横幅 -->
+        <!-- 店铺横幅（主题渐变）-->
         <div
           class="w-full h-56 flex flex-col justify-end p-5"
           :style="{ background: tpl.gradient }"
         >
-          <span class="text-xs bg-black/40 backdrop-blur-sm self-start
-                       px-2 py-0.5 rounded-full mb-2 text-white/80">
+          <span
+            class="text-xs self-start px-2 py-0.5 rounded-full mb-2"
+            :style="{ background: tpl.theme.primary + '33', color: tpl.theme.primary }"
+          >
             {{ tpl.tag }}
           </span>
-          <h1 class="text-2xl font-bold">{{ tpl.name }}</h1>
-          <p class="text-white/60 text-sm mt-1">
+          <h1 class="text-2xl font-bold" :style="{ color: tpl.theme.text }">
+            {{ tpl.name }}
+          </h1>
+          <p class="text-sm mt-1" :style="{ color: tpl.theme.subText }">
             {{ tpl.products.length }} 款精选商品
           </p>
         </div>
 
-        <!-- 商品列表（single）-->
+        <!-- 单品展示（single）-->
         <div v-if="tpl.type === 'single'"
              class="max-w-[480px] mx-auto px-4 pt-5 space-y-4">
           <div
             v-for="(p, i) in tpl.products"
             :key="i"
-            class="card overflow-hidden"
+            class="rounded-2xl overflow-hidden"
+            :style="{ background: tpl.theme.card, border: `1px solid ${tpl.theme.border}` }"
           >
-            <div
-              class="w-full aspect-square"
-              :style="{ background: p.gradient }"
-            />
+            <div class="w-full aspect-square" :style="{ background: p.gradient }" />
             <div class="p-4">
-              <p class="font-semibold">{{ p.name }}</p>
-              <p class="text-accent text-lg font-bold mt-1">€{{ p.price }}</p>
-              <button class="btn-primary mt-3 text-sm">立即购买</button>
+              <p class="font-semibold" :style="{ color: tpl.theme.text }">{{ p.name }}</p>
+              <p class="text-lg font-bold mt-1" :style="{ color: tpl.theme.primary }">
+                €{{ p.price }}
+              </p>
+              <button
+                class="mt-3 w-full h-12 rounded-full font-bold text-sm"
+                :style="{ background: tpl.theme.primary, color: tpl.theme.bg }"
+              >
+                立即购买
+              </button>
             </div>
           </div>
         </div>
@@ -120,15 +158,13 @@ function share() {
             <div
               v-for="(p, i) in tpl.products"
               :key="i"
-              class="card overflow-hidden"
+              class="rounded-2xl overflow-hidden"
+              :style="{ background: tpl.theme.card, border: `1px solid ${tpl.theme.border}` }"
             >
-              <div
-                class="w-full aspect-square"
-                :style="{ background: p.gradient }"
-              />
+              <div class="w-full aspect-square" :style="{ background: p.gradient }" />
               <div class="p-3">
-                <p class="font-semibold text-sm">{{ p.name }}</p>
-                <p class="text-accent font-bold mt-0.5">€{{ p.price }}</p>
+                <p class="font-semibold text-sm" :style="{ color: tpl.theme.text }">{{ p.name }}</p>
+                <p class="font-bold mt-0.5" :style="{ color: tpl.theme.primary }">€{{ p.price }}</p>
               </div>
             </div>
           </div>
@@ -136,17 +172,26 @@ function share() {
 
       </div><!-- /pb-28 -->
 
-      <!-- 底部固定操作栏 -->
-      <div class="fixed bottom-0 left-0 right-0 z-20
-                  bg-bg/95 backdrop-blur-md border-t border-border
-                  px-4 pt-3 pb-[calc(.75rem+env(safe-area-inset-bottom))]">
-        <p class="text-muted text-xs text-center mb-3">
-          预览效果 · 开店后获得专属链接
+      <!-- 底部固定操作栏（主题色 CTA）-->
+      <div
+        class="fixed bottom-0 left-0 right-0 z-20 backdrop-blur-md
+               px-4 pt-3 pb-[calc(.75rem+env(safe-area-inset-bottom))]"
+        :style="{
+          background: tpl.theme.bg + 'F2',
+          borderTop: `1px solid ${tpl.theme.border}`
+        }"
+      >
+        <p class="text-xs text-center mb-3" :style="{ color: tpl.theme.subText }">
+          预览效果 · 开店后获得专属分享链接
         </p>
         <button
           :disabled="opening"
-          class="btn-primary w-full text-sm font-bold"
-          @click="createShop"
+          class="w-full h-12 rounded-full font-bold text-sm
+                 flex items-center justify-center gap-2
+                 active:scale-95 transition-transform duration-100
+                 disabled:opacity-50 disabled:cursor-not-allowed"
+          :style="{ background: tpl.theme.primary, color: tpl.theme.bg }"
+          @click="createShopAndGo"
         >
           <svg v-if="opening" class="animate-spin h-4 w-4 shrink-0"
                viewBox="0 0 24 24" fill="none">

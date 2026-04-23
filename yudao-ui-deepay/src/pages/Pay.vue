@@ -1,6 +1,7 @@
 <!--
-  Pay.vue — 支付结果页（/pay/:id 路由，支付网关跳回）
-  Deblock暗色风 · 绿色成功状态 · 配额卡片
+  Pay.vue — 支付结果页
+  路径：/pay/:id
+  支付网关回调后跳回此页，读 ?result=success&plan=PACK_M
 -->
 <script setup>
 import { ref, onMounted } from 'vue'
@@ -18,106 +19,10 @@ const USER_ID = localStorage.getItem('deepay_uid') || 'u1'
 
 onMounted(async () => {
   const result = route.query.result || 'success'
-  if (result === 'success') {
-    status.value  = 'success'
-    message.value = '解锁成功！快去生成爆款吧'
-    try { quota.value = await getQuotaInfo(USER_ID) } catch (_) {}
-  } else {
-    status.value  = 'failed'
-    message.value = '支付未完成，请重试'
-  }
-})
-</script>
-
-<template>
-  <div class="min-h-screen bg-bg text-white
-              flex flex-col items-center justify-center
-              px-6 text-center fade-up">
-
-    <!-- Loading -->
-    <template v-if="status === 'loading'">
-      <svg class="animate-spin h-10 w-10 text-accent mb-5"
-           viewBox="0 0 24 24" fill="none">
-        <circle cx="12" cy="12" r="10" stroke="currentColor"
-                stroke-opacity=".2" stroke-width="3"/>
-        <path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor"
-              stroke-width="3" stroke-linecap="round"/>
-      </svg>
-      <p class="text-[#9CA3AF] text-sm">确认支付结果中…</p>
-    </template>
-
-    <!-- Success -->
-    <template v-else-if="status === 'success'">
-      <p class="text-6xl mb-5">🎉</p>
-      <h2 class="text-xl font-semibold mb-1.5">{{ message }}</h2>
-      <p class="text-[#9CA3AF] text-sm mb-7">已为你解锁更多生成次数</p>
-
-      <!-- 配额卡片 -->
-      <div v-if="quota"
-           class="w-full max-w-[300px] rounded-2xl overflow-hidden mb-7"
-           style="background:#111;border:1px solid #1A1A1A;box-shadow:0 0 24px rgba(0,0,0,.35)">
-        <div class="flex justify-between px-5 py-3.5 text-sm border-b border-[#1A1A1A]">
-          <span class="text-[#9CA3AF]">免费剩余</span>
-          <strong>{{ quota.remainFree }} 次</strong>
-        </div>
-        <div class="flex justify-between px-5 py-3.5 text-sm border-b border-[#1A1A1A]">
-          <span class="text-[#9CA3AF]">付费剩余</span>
-          <strong>{{ quota.remainPaid }} 次</strong>
-        </div>
-        <div class="flex justify-between px-5 py-3.5 text-sm">
-          <span class="text-[#9CA3AF]">合计可用</span>
-          <strong class="text-accent text-base">
-            {{ (quota.remainFree ?? 0) + (quota.remainPaid ?? 0) }} 次
-          </strong>
-        </div>
-      </div>
-
-      <button class="btn-primary max-w-[280px] text-sm font-medium"
-              @click="router.push('/generate')">
-        立即生成爆款设计
-      </button>
-    </template>
-
-    <!-- Failed -->
-    <template v-else>
-      <p class="text-6xl mb-5">😕</p>
-      <h2 class="text-xl font-semibold mb-7">{{ message }}</h2>
-      <button class="btn-primary max-w-[280px] text-sm font-medium"
-              @click="router.push('/generate')">
-        返回重试
-      </button>
-    </template>
-
-  </div>
-</template>
-
-  支付网关跳转回此页后，展示成功/失败状态，
-  并返回最新配额（STEP 42：支付成功后显示剩余次数）。
--->
-<script setup>
-import { ref, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { getQuotaInfo } from '@/api'
-import axios from 'axios'
-
-const route  = useRoute()
-const router = useRouter()
-
-const status   = ref('loading')  // loading | success | failed
-const quota    = ref(null)
-const message  = ref('')
-
-const USER_ID = 'u1' // TODO: 从登录态读取
-
-onMounted(async () => {
-  // 支付网关通常通过 query 参数传状态，如 ?result=success&plan=PACK_M
-  const result = route.query.result || 'success'
-  const plan   = route.query.plan   || ''
 
   if (result === 'success') {
     status.value  = 'success'
     message.value = '支付成功！快去生成爆款吧 🎉'
-    // 拉取最新配额
     try {
       quota.value = await getQuotaInfo(USER_ID)
     } catch (_) {}
@@ -129,83 +34,47 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="page">
+  <div class="min-h-screen bg-bg text-white flex flex-col items-center
+              justify-center px-6 py-16 max-w-[480px] mx-auto text-center">
+
     <!-- Loading -->
-    <div v-if="status === 'loading'" class="center">
-      <div class="spinner" />
-      <p>确认支付结果中…</p>
-    </div>
+    <template v-if="status === 'loading'">
+      <div class="w-10 h-10 border-2 border-accent border-t-transparent
+                  rounded-full animate-spin mb-4"></div>
+      <p class="text-muted text-sm">确认支付结果中…</p>
+    </template>
 
     <!-- Success -->
-    <div v-else-if="status === 'success'" class="center success">
-      <div class="icon">🎉</div>
-      <h2>{{ message }}</h2>
+    <template v-else-if="status === 'success'">
+      <div class="text-5xl mb-5">🎉</div>
+      <h2 class="text-xl font-bold mb-2">{{ message }}</h2>
 
-      <div v-if="quota" class="quota-info">
-        <div class="quota-row">
-          <span>免费剩余</span>
-          <strong>{{ quota.remainFree }} 次</strong>
+      <div v-if="quota" class="w-full card p-4 mb-6 text-left space-y-2">
+        <div class="flex justify-between text-sm">
+          <span class="text-muted">免费剩余</span>
+          <strong class="text-accent">{{ quota.remainFree }} 次</strong>
         </div>
-        <div class="quota-row">
-          <span>付费剩余</span>
-          <strong>{{ quota.remainPaid }} 次</strong>
+        <div class="flex justify-between text-sm">
+          <span class="text-muted">付费剩余</span>
+          <strong class="text-accent">{{ quota.remainPaid }} 次</strong>
         </div>
-        <div class="quota-row total">
-          <span>合计可用</span>
-          <strong>{{ quota.totalRemain }} 次</strong>
+        <div class="flex justify-between text-sm border-t border-border pt-2">
+          <span class="text-muted font-semibold">合计可用</span>
+          <strong class="text-accent text-base">{{ quota.totalRemain }} 次</strong>
         </div>
       </div>
 
-      <button class="primary-btn" @click="router.push('/')">
+      <button class="btn-primary" @click="router.push('/')">
         立即生成爆款设计
       </button>
-    </div>
+    </template>
 
     <!-- Failed -->
-    <div v-else class="center failed">
-      <div class="icon">😕</div>
-      <h2>{{ message }}</h2>
-      <button class="primary-btn" @click="router.push('/')">返回重试</button>
-    </div>
+    <template v-else>
+      <div class="text-5xl mb-5">😕</div>
+      <h2 class="text-xl font-bold mb-6">{{ message }}</h2>
+      <button class="btn-primary" @click="router.push('/')">返回重试</button>
+    </template>
+
   </div>
 </template>
-
-<style scoped>
-.page  { max-width: 480px; margin: 0 auto; padding: 60px 16px; }
-
-.center {
-  display: flex; flex-direction: column;
-  align-items: center; gap: 16px; text-align: center;
-}
-
-.icon { font-size: 64px; }
-h2    { font-size: 22px; font-weight: 800; }
-
-/* Quota card */
-.quota-info {
-  background: #f0fdf4; border-radius: 16px;
-  padding: 20px; width: 100%; margin: 8px 0;
-}
-.quota-row {
-  display: flex; justify-content: space-between;
-  padding: 8px 0; font-size: 15px;
-  border-bottom: 1px solid #d1fae5;
-}
-.quota-row:last-child { border-bottom: none; }
-.quota-row.total strong { color: #4f46e5; font-size: 18px; }
-
-.primary-btn {
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
-  color: #fff; font-size: 16px; font-weight: 700;
-  padding: 16px 32px; border-radius: 14px; width: 100%;
-}
-
-/* Spinner */
-.spinner {
-  width: 40px; height: 40px; border-radius: 50%;
-  border: 4px solid #e5e7eb;
-  border-top-color: #4f46e5;
-  animation: spin .8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-</style>
