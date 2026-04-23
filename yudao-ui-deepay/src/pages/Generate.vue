@@ -219,17 +219,16 @@ function openPaywall(msg, plans) {
              class="aspect-[3/4] rounded-2xl bg-surface2" />
       </div>
 
-      <!-- 图片瀑布（逐张渐显）-->
+      <!-- 图片瀑布（逐张渐显，card depth）-->
       <div v-if="images.length" class="grid grid-cols-2 gap-3">
         <div
           v-for="(img, idx) in images" :key="img"
-          :class="['img-card img-fade', selected === img ? 'img-card-selected' : '']"
+          :class="['img-card img-in', selected === img ? 'img-card-selected' : '']"
           :style="{ animationDelay: `${idx * 0.06}s` }"
           @click="onSelect(img)"
         >
           <img :src="img" :alt="`${category} ${style}`"
                loading="lazy" class="w-full h-full object-cover" />
-
           <div v-if="selected === img"
                class="absolute bottom-2.5 left-1/2 -translate-x-1/2
                       bg-accent text-black text-xs font-bold
@@ -254,17 +253,7 @@ function openPaywall(msg, plans) {
 </template>
 
 <style scoped>
-/* 图片逐张淡入 */
-.img-fade {
-  opacity: 0;
-  animation: img-appear .5s ease forwards;
-}
-@keyframes img-appear {
-  from { opacity: 0; transform: scale(.96); }
-  to   { opacity: 1; transform: scale(1);   }
-}
-
-/* 空状态淡入（Tailwind arbitrary animation fallback）*/
+/* empty-state fade (global .fade-up used on other elements) */
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
