@@ -43,8 +43,6 @@ const loading  = ref(true)
 const error    = ref('')
 const ordering = ref(false)
 
-const USER_ID = localStorage.getItem('deepay_uid') || 'u1'
-
 // 选出模板组件（id 优先，type 兜底）
 const CurrentTemplate = computed(() =>
   shop.value
@@ -89,28 +87,36 @@ onMounted(async () => {
   }
 })
 
-// ── 购买（MVP：模板店提示，API店跳支付）──────────────────────────────
+// ── 购买 → 统一走 Jeepay 支付 ─────────────────────────────────────────
 async function onBuy() {
   if (ordering.value || !shop.value) return
 
-  // 模板店 / AI店暂未接支付——占位提示
-  if (!shop.value._raw) {
+  const product = shop.value.products?.[0] || {}
+  const amount  = Number(product.price) || 0
+
+  // 未接后端时的占位（amount 为 0 说明是纯展示模板，暂不支持支付）
+  if (!amount) {
     const url = window.location.href
     if (navigator.share) {
       navigator.share({ title: shop.value.name || 'Deepay', url })
     } else {
-      alert('店铺已生成！复制链接发给客户：\n' + url)
+      navigator.clipboard?.writeText(url).then(() => alert('链接已复制 🎉'))
+        .catch(() => alert('店铺已生成！分享链接：\n' + url))
     }
     return
   }
 
-  // API 商品 → 走支付
   ordering.value = true
+  error.value    = ''
   try {
-    const order = await createOrder(USER_ID, route.params.id, shop.value._raw.price)
-    if (order?.payUrl) window.location.href = order.payUrl
+    const order = await createOrder(route.params.id, amount, 'EUR')
+    if (order?.payUrl) {
+      window.location.href = order.payUrl
+    } else {
+      error.value = '支付链接获取失败，请重试'
+    }
   } catch {
-    error.value = '下单失败，请重试'
+    error.value = '下单失败，请检查网络后重试'
   } finally {
     ordering.value = false
   }

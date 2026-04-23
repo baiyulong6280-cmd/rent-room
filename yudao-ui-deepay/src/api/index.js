@@ -67,7 +67,13 @@ export function getShopPage(id, currency = 'EUR') {
   return http.get(`/api/shop/${id}`, { params: { currency } })
 }
 
-/** Create order (returns { orderId, paymentId, payUrl }) */
-export function createOrder(userId, chainCode, amount) {
-  return http.post('/api/order/create', { userId, chainCode, amount })
+/**
+ * Create a product purchase order.
+ * Returns { orderId, payUrl }
+ * @param {string} shopId
+ * @param {number} amount  decimal e.g. 29.99
+ * @param {string} currency  e.g. 'EUR'
+ */
+export function createOrder(shopId, amount, currency = 'EUR') {
+  return http.post('/api/order/create', { shopId, amount, currency })
 }
