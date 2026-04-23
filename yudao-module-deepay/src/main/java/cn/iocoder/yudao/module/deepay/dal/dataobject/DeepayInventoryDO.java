@@ -8,28 +8,22 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * Deepay 库存管理表。
- *
- * <p>对应数据库表 {@code deepay_inventory}，记录每个链码商品的库存状态。</p>
+ * 库存表 deepay_inventory
  */
 @TableName("deepay_inventory")
 @Data
 public class DeepayInventoryDO {
 
-    /** 自增主键 */
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    /** 商品链码，关联 deepay_style_chain.chain_code */
+    /** 关联链码 */
     private String chainCode;
 
-    /** 当前可用库存 */
+    /** 可用库存 */
     private Integer stock;
 
-    /**
-     * 锁定库存（已下单未支付）。
-     * 下单时从 stock 转移到 lockedStock；支付成功后 lockedStock 归零（货已发出）。
-     */
+    /** 锁定库存（下单未支付） */
     private Integer lockedStock;
 
     /**
@@ -42,7 +36,8 @@ public class DeepayInventoryDO {
      */
     private String status;
 
-    /** 最后更新时间 */
+    private LocalDateTime createdAt;
+
     private LocalDateTime updatedAt;
 
 }

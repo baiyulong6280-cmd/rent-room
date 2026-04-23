@@ -3,36 +3,37 @@ package cn.iocoder.yudao.module.deepay.dal.mysql;
 import cn.iocoder.yudao.framework.mybatis.core.mapper.BaseMapperX;
 import cn.iocoder.yudao.module.deepay.dal.dataobject.DeepayInventoryDO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.apache.ibatis.annotations.Mapper;
 
 import java.util.List;
 
-/**
- * Deepay 库存 Mapper。
- *
- * <p>继承 {@link BaseMapperX} 获得通用 CRUD 能力（MyBatis-Plus）。</p>
- */
 @Mapper
 public interface DeepayInventoryMapper extends BaseMapperX<DeepayInventoryDO> {
 
-    /**
-     * 根据 chainCode 查询库存记录。
-     *
-     * @param chainCode 商品链码
-     * @return 库存记录，若不存在则返回 null
-     */
     default DeepayInventoryDO selectByChainCode(String chainCode) {
         return selectOne(new LambdaQueryWrapper<DeepayInventoryDO>()
                 .eq(DeepayInventoryDO::getChainCode, chainCode));
     }
 
-    /**
-     * 查询所有库存记录。
-     *
-     * @return 所有库存列表
-     */
     default List<DeepayInventoryDO> selectAll() {
         return selectList(new LambdaQueryWrapper<>());
+    }
+
+    /**
+     * 原子库存扣减：仅在 stock > 0 时执行 stock-- 和 locked_stock--（最小为 0）。
+     *
+     * <p>使用单条 UPDATE + WHERE stock &gt; 0 保证永不出现负库存，
+     * 无需先 SELECT 再 UPDATE，天然防并发。</p>
+     *
+     * @param chainCode 链码
+     * @return 受影响行数；0 表示库存不足
+     */
+    default int decrementStockAtomic(String chainCode) {
+        return update(null, new LambdaUpdateWrapper<DeepayInventoryDO>()
+                .eq(DeepayInventoryDO::getChainCode, chainCode)
+                .gt(DeepayInventoryDO::getStock, 0)
+                .setSql("stock = stock - 1, locked_stock = GREATEST(locked_stock - 1, 0)"));
     }
 
 }

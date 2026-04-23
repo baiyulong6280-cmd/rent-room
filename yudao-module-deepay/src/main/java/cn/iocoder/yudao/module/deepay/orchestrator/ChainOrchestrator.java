@@ -43,11 +43,12 @@ public class ChainOrchestrator {
      */
     public Context run(String prompt) {
         Context ctx = new Context();
-        ctx.prompt = prompt;
+        ctx.keyword = prompt;
+        ctx.prompt  = prompt; // backward compat
 
-        // 1. 设计生成（AI 出图，失败时自动降级为保底图片）
+        // 1. 生成设计图（使用 keyword）
         ctx = designAgent.run(ctx);
-        // 2. 决策选图（MVP 选第一张）
+        // 2. 选图（取第一张）
         ctx = new DecisionAgent().run(ctx);
         // 3. 生成链码并落库（必须在库存初始化之前完成）
         ctx = chainAgent.run(ctx);
