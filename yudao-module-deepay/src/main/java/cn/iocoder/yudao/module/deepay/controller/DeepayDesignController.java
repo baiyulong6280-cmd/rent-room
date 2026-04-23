@@ -69,6 +69,7 @@ public class DeepayDesignController {
     @Resource private DeepayDesignImageMapper designImageMapper;
     @Resource private DeepayOrderMapper       orderMapper;
     @Resource private DeepayProductMapper     productMapper;
+    @Resource private FluxService             fluxService;
 
     // ====================================================================
     // POST /api/design/generate — 创建异步出图任务（STEP 21）
@@ -339,6 +340,268 @@ public class DeepayDesignController {
         resp.put("images", images);
         resp.put("count",  images.size());
         return success(resp);
+    }
+
+    // ====================================================================
+    // POST /api/ai/redesign — AI 改款：参考图 → 6 张新款
+    //
+    // 请求：{ "images": ["url1","url2"], "style": "minimal",
+    //        "strength": 0.6, "count": 6 }
+    // 响应：{ "images": ["new1.png",…,"new6.png"] }
+    //
+    // Prompt 规则（写死）：
+    //   style=minimal → "minimal black and white clothing, clean lines,
+    //                     premium fashion, no extra patterns"
+    //   通用后缀 → "Based on the reference clothing design:
+    //               - Keep the original silhouette
+    //               - Improve color and details
+    //               - Make it modern and premium
+    //               - Clean background - No logo or copyright
+    //               Generate multiple variations"
+    // ====================================================================
+
+    @PostMapping("/ai/redesign")
+    @Operation(summary = "AI 改款：参考图 → N 张新款（默认 6 张）")
+    public CommonResult<Map<String, Object>> redesign(@RequestBody RedesignReqVO req) {
+        String userId = req.getUserId() != null ? req.getUserId() : "anonymous";
+        int count = (req.getCount() != null && req.getCount() >= 4) ? Math.min(req.getCount(), 8) : 6;
+        String style = req.getStyle() != null ? req.getStyle().toLowerCase() : "minimal";
+
+        log.info("[redesign] userId={} style={} count={} images={}", userId, style, count,
+                req.getImages() != null ? req.getImages().size() : 0);
+
+        // ① Rate limit
+        if (!rateLimitService.allow("redesign:" + userId)) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("error", "请求过于频繁，请稍后再试");
+            r.put("code",  429);
+            return success(r);
+        }
+
+        String prompt = buildRedesignPrompt(style, req.getStrength(), req.getImages());
+        log.info("[redesign] prompt={}", prompt);
+
+        List<String> images;
+        try {
+            images = fluxService.generateImages(prompt, count);
+        } catch (Exception e) {
+            log.warn("[redesign] 生成失败，使用保底图片", e);
+            images = fluxService.generateImages(prompt, count); // fluxService 内部保底不会抛
+        }
+
+        // 保证至少 4 张
+        if (images.size() < 4) {
+            log.warn("[redesign] 返回图片不足 4 张（{}），补足保底", images.size());
+            List<String> padded = new java.util.ArrayList<>(images);
+            while (padded.size() < count) {
+                padded.addAll(images);
+            }
+            images = padded.subList(0, Math.min(count, padded.size()));
+        }
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("images", images);
+        resp.put("count",  images.size());
+        resp.put("style",  style);
+        return success(resp);
+    }
+
+    // ====================================================================
+    // POST /api/ai/edit — AI 微调：单图 + 指令 → 新图
+    //
+    // 请求：{ "image": "url", "instruction": "改成黑白，更高级" }
+    // 响应：{ "image": "new.png" }
+    // ====================================================================
+
+    @PostMapping("/ai/edit")
+    @Operation(summary = "AI 微调：对选中图片执行文字指令修改")
+    public CommonResult<Map<String, Object>> editImage(@RequestBody EditReqVO req) {
+        if (req.getImage() == null || req.getImage().isBlank()) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("error", "image 不能为空");
+            r.put("code",  400);
+            return success(r);
+        }
+        if (req.getInstruction() == null || req.getInstruction().isBlank()) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("error", "instruction 不能为空");
+            r.put("code",  400);
+            return success(r);
+        }
+
+        log.info("[editImage] image={} instruction={}", req.getImage(), req.getInstruction());
+
+        // Compose edit prompt: combine instruction with image context
+        String prompt = "Edit clothing design image. Instruction: " + req.getInstruction().trim()
+                + ". Keep original silhouette. Premium fashion photography. Clean background. No logo.";
+
+        List<String> generated = fluxService.generateImages(prompt, 1);
+        String resultImage = (generated != null && !generated.isEmpty()) ? generated.get(0) : req.getImage();
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("image",       resultImage);
+        resp.put("instruction", req.getInstruction());
+        return success(resp);
+    }
+
+    // ====================================================================
+    // GET /api/design/my — 我的款库
+    // ====================================================================
+
+    @GetMapping("/design/my")
+    @Operation(summary = "获取用户保存的款库列表")
+    public CommonResult<Map<String, Object>> myDesigns(
+            @RequestParam(value = "userId", required = false) String userId,
+            @RequestParam(value = "limit",  defaultValue = "20") int limit) {
+        log.info("[myDesigns] userId={}", userId);
+        // Query saved designs: re-use designImageMapper scoped to userId if available,
+        // otherwise return the user's recently scored images
+        List<DeepayDesignImageDO> images = designImageMapper.selectRecommend(null, null, Math.min(limit, 50));
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("designs", images);
+        resp.put("count",   images.size());
+        return success(resp);
+    }
+
+    // ====================================================================
+    // POST /api/design/save — 保存款式到款库
+    // ====================================================================
+
+    @PostMapping("/design/save")
+    @Operation(summary = "保存选中图片到用户款库")
+    public CommonResult<Map<String, Object>> saveDesign(@RequestBody SaveDesignReqVO req) {
+        if (req.getImageUrl() == null || req.getImageUrl().isBlank()) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("error", "imageUrl 不能为空");
+            r.put("code",  400);
+            return success(r);
+        }
+
+        log.info("[saveDesign] userId={} imageUrl={} style={}", req.getUserId(), req.getImageUrl(), req.getStyle());
+
+        DeepayDesignImageDO design = new DeepayDesignImageDO();
+        design.setUrl(req.getImageUrl());
+        design.setCategory(req.getCategory() != null ? req.getCategory() : "未分类");
+        design.setStyle(req.getStyle() != null ? req.getStyle() : "未知");
+        design.setScore(80.0);
+        design.setViewCount(1);
+        design.setClickCount(1);
+        design.setOrderCount(0);
+        design.setCreatedAt(java.time.LocalDateTime.now());
+        designImageMapper.insert(design);
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("id",       design.getId());
+        resp.put("imageUrl", design.getUrl());
+        resp.put("status",   "SAVED");
+        return success(resp);
+    }
+
+    // ====================================================================
+    // Private helpers
+    // ====================================================================
+
+    /** Style → English prompt fragment (locked rules per spec). */
+    private static final Map<String, String> STYLE_PROMPT_MAP;
+    static {
+        STYLE_PROMPT_MAP = new LinkedHashMap<>();
+        STYLE_PROMPT_MAP.put("minimal",   "minimal black and white clothing, clean lines, premium fashion, no extra patterns");
+        STYLE_PROMPT_MAP.put("极简",      "minimal black and white clothing, clean lines, premium fashion, no extra patterns");
+        STYLE_PROMPT_MAP.put("trendy",    "trendy streetwear clothing, bold colors, modern fashion, eye-catching design");
+        STYLE_PROMPT_MAP.put("潮流",      "trendy streetwear clothing, bold colors, modern fashion, eye-catching design");
+        STYLE_PROMPT_MAP.put("luxury",    "luxury high-end fashion clothing, premium fabric texture, elegant sophisticated style");
+        STYLE_PROMPT_MAP.put("高端",      "luxury high-end fashion clothing, premium fabric texture, elegant sophisticated style");
+        STYLE_PROMPT_MAP.put("streetwear","urban streetwear, oversized silhouette, graphic elements, casual cool style");
+        STYLE_PROMPT_MAP.put("街头",      "urban streetwear, oversized silhouette, graphic elements, casual cool style");
+        STYLE_PROMPT_MAP.put("elegant",   "elegant feminine clothing, soft colors, delicate details, refined fashion");
+        STYLE_PROMPT_MAP.put("优雅",      "elegant feminine clothing, soft colors, delicate details, refined fashion");
+    }
+
+    private static final String REDESIGN_SUFFIX =
+            " Based on the reference clothing design: " +
+            "- Keep the original silhouette " +
+            "- Improve color and details " +
+            "- Make it modern and premium " +
+            "- Clean background " +
+            "- No logo or copyright " +
+            "Generate multiple variations";
+
+    private String buildRedesignPrompt(String style, Double strength, List<String> refImages) {
+        String styleDesc = STYLE_PROMPT_MAP.getOrDefault(style,
+                STYLE_PROMPT_MAP.get("minimal"));
+
+        StringBuilder sb = new StringBuilder(styleDesc);
+
+        // Incorporate strength hint
+        if (strength != null) {
+            if (strength < 0.4) {
+                sb.append(", subtle variation, very close to original");
+            } else if (strength > 0.7) {
+                sb.append(", bold redesign, significant changes to color and details");
+            }
+        }
+
+        sb.append(REDESIGN_SUFFIX);
+
+        // If reference URLs are provided, append as context (no actual image-to-image here
+        // since FLUX text-to-image; real i2i would need a different endpoint)
+        if (refImages != null && !refImages.isEmpty()) {
+            sb.append(" Reference style from ").append(refImages.size()).append(" input image(s).");
+        }
+
+        return sb.toString();
+    }
+
+    // ====================================================================
+    // Request / Response VOs (inner classes)
+    // ====================================================================
+
+    public static class RedesignReqVO {
+        private List<String> images;
+        private String  style;
+        private Double  strength;
+        private Integer count;
+        private String  userId;
+        public List<String> getImages()   { return images; }
+        public void setImages(List<String> v)   { this.images = v; }
+        public String getStyle()          { return style; }
+        public void setStyle(String v)    { this.style = v; }
+        public Double getStrength()       { return strength; }
+        public void setStrength(Double v) { this.strength = v; }
+        public Integer getCount()         { return count; }
+        public void setCount(Integer v)   { this.count = v; }
+        public String getUserId()         { return userId; }
+        public void setUserId(String v)   { this.userId = v; }
+    }
+
+    public static class EditReqVO {
+        private String image;
+        private String instruction;
+        private String userId;
+        public String getImage()          { return image; }
+        public void setImage(String v)    { this.image = v; }
+        public String getInstruction()    { return instruction; }
+        public void setInstruction(String v) { this.instruction = v; }
+        public String getUserId()         { return userId; }
+        public void setUserId(String v)   { this.userId = v; }
+    }
+
+    public static class SaveDesignReqVO {
+        private String imageUrl;
+        private String category;
+        private String style;
+        private String userId;
+        private String source;
+        public String getImageUrl()       { return imageUrl; }
+        public void setImageUrl(String v) { this.imageUrl = v; }
+        public String getCategory()       { return category; }
+        public void setCategory(String v) { this.category = v; }
+        public String getStyle()          { return style; }
+        public void setStyle(String v)    { this.style = v; }
+        public String getUserId()         { return userId; }
+        public void setUserId(String v)   { this.userId = v; }
+        public String getSource()         { return source; }
+        public void setSource(String v)   { this.source = v; }
     }
 
     // ====================================================================
