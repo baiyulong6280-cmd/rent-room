@@ -458,6 +458,52 @@ public class DeepayDesignController {
     }
 
     // ====================================================================
+    // POST /api/ai/recolor — AI 改色：只改颜色，不动结构
+    //
+    // 请求：{ "image": "xxx.png", "colorScheme": "black_white" }
+    // 响应：{ "image": "recolored.png", "colorScheme": "black_white" }
+    //
+    // 预设配色方案：
+    //   black_white  → 纯黑白配色，极简高级
+    //   earth_tone   → 大地色系（米/驼/棕），可穿性强
+    //   grey_minimal → 灰阶极简，低调质感
+    //   mono_color   → 单色系统一，品牌感强
+    //   navy_cream   → 藏青+米白，经典永恒
+    //
+    // 规则（写死）：
+    //   ✔ 只改颜色 / 面料色调
+    //   ✔ 保留原始廓形、结构、剪裁
+    //   ❌ 不改版型
+    //   ❌ 不改细节设计
+    // ====================================================================
+
+    @PostMapping("/ai/recolor")
+    @Operation(summary = "AI 改色：只改颜色方案，结构不变")
+    public CommonResult<Map<String, Object>> recolorImage(@RequestBody RecolorReqVO req) {
+        if (req.getImage() == null || req.getImage().isBlank()) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("error", "image 不能为空");
+            r.put("code",  400);
+            return success(r);
+        }
+
+        String scheme = req.getColorScheme() != null ? req.getColorScheme().toLowerCase() : "black_white";
+        log.info("[recolorImage] image={} colorScheme={}", req.getImage(), scheme);
+
+        String colorPrompt = buildRecolorPrompt(scheme);
+        log.info("[recolorImage] prompt={}", colorPrompt);
+
+        List<String> generated = fluxService.generateImages(colorPrompt, 1);
+        String resultImage = (generated != null && !generated.isEmpty()) ? generated.get(0) : req.getImage();
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("image",       resultImage);
+        resp.put("colorScheme", scheme);
+        resp.put("colorLabel",  COLOR_SCHEME_LABELS.getOrDefault(scheme, scheme));
+        return success(resp);
+    }
+
+    // ====================================================================
     // POST /api/ai/edit — AI 微调：单图 + 指令 → 新图
     //
     // 请求：{ "image": "url", "instruction": "改成黑白，更高级" }
@@ -911,6 +957,51 @@ public class DeepayDesignController {
         return result;
     }
 
+    /** Color scheme key → display label. */
+    private static final Map<String, String> COLOR_SCHEME_LABELS;
+    /** Color scheme key → English prompt fragment for recolor. */
+    private static final Map<String, String> COLOR_SCHEME_PROMPTS;
+    static {
+        COLOR_SCHEME_LABELS  = new LinkedHashMap<>();
+        COLOR_SCHEME_PROMPTS = new LinkedHashMap<>();
+
+        COLOR_SCHEME_LABELS.put("black_white", "黑白");
+        COLOR_SCHEME_PROMPTS.put("black_white",
+                "Recolor this clothing design to pure black and white only. " +
+                "Use deep black and clean white tones. No other colors. " +
+                "Keep every design detail, silhouette and structure exactly the same.");
+
+        COLOR_SCHEME_LABELS.put("earth_tone", "大地色");
+        COLOR_SCHEME_PROMPTS.put("earth_tone",
+                "Recolor this clothing design using earth tones: warm beige, camel, tan, terracotta and brown. " +
+                "Keep the palette to 2-3 complementary earth shades. " +
+                "Keep every design detail, silhouette and structure exactly the same.");
+
+        COLOR_SCHEME_LABELS.put("grey_minimal", "灰阶");
+        COLOR_SCHEME_PROMPTS.put("grey_minimal",
+                "Recolor this clothing design using a minimal grey scale palette: " +
+                "light grey, medium grey, charcoal. No warm or cool tints. " +
+                "Keep every design detail, silhouette and structure exactly the same.");
+
+        COLOR_SCHEME_LABELS.put("mono_color", "单色系");
+        COLOR_SCHEME_PROMPTS.put("mono_color",
+                "Recolor this clothing design as a monochromatic outfit — one primary color in varying shades and tones. " +
+                "Choose one premium fashion color: navy, forest green, burgundy, or dusty rose. " +
+                "Keep every design detail, silhouette and structure exactly the same.");
+
+        COLOR_SCHEME_LABELS.put("navy_cream", "藏青+米白");
+        COLOR_SCHEME_PROMPTS.put("navy_cream",
+                "Recolor this clothing design using classic navy blue and cream / off-white combination only. " +
+                "Navy for the main body, cream for accents and contrast. " +
+                "Keep every design detail, silhouette and structure exactly the same.");
+    }
+
+    private String buildRecolorPrompt(String scheme) {
+        String base = COLOR_SCHEME_PROMPTS.getOrDefault(scheme,
+                COLOR_SCHEME_PROMPTS.get("black_white"));
+        return base + " Premium fashion photography. Clean studio background. No logo.";
+    }
+
     /** Style → English prompt fragment (locked rules per spec). */
     private static final Map<String, String> STYLE_PROMPT_MAP;
     static {
@@ -1114,6 +1205,18 @@ public class DeepayDesignController {
         public void setUserId(Long v)   { this.userId = v; }
         public BigDecimal getAmount()   { return amount; }
         public void setAmount(BigDecimal v)  { this.amount = v; }
+    }
+
+    public static class RecolorReqVO {
+        private String image;
+        private String colorScheme;
+        private String userId;
+        public String getImage()             { return image; }
+        public void setImage(String v)       { this.image = v; }
+        public String getColorScheme()       { return colorScheme; }
+        public void setColorScheme(String v) { this.colorScheme = v; }
+        public String getUserId()            { return userId; }
+        public void setUserId(String v)      { this.userId = v; }
     }
 
     public static class RefineReqVO {
