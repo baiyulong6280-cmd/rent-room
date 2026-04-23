@@ -12,7 +12,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getDashboard } from '@/api/user'
-import { createPayment } from '@/api'
+import { createPayment } from '@/api/order'
 import { initUserId } from '@/utils/user'
 
 const router = useRouter()
@@ -34,8 +34,9 @@ const selectedPlan = ref('SHARE_M')
 async function loadDashboard() {
   try {
     dash.value = await getDashboard()
-  } catch (_) {
+  } catch (error) {
     dashError.value = true
+    console.error('Failed to load dashboard:', error)
     dash.value = { shareAmount: 0, dividendEarn: 0, totalEarn: 0 }
   }
 }
@@ -57,6 +58,8 @@ async function buyShares() {
     buying.value = false
   }
 }
+
+const DISCLAIMER = '份额购买后不可退款 · 分红按月结算 · 平台有权更新分红政策'
 
 const fmt = v => Number(v ?? 0).toFixed(2)
 
@@ -198,7 +201,7 @@ onMounted(loadDashboard)
 
       <!-- ── 温馨提示 ──────────────────────────────────────── -->
       <p class="text-center text-muted text-xs leading-relaxed">
-        份额购买后不可退款 · 分红按月结算 · 平台有权更新分红政策
+        {{ DISCLAIMER }}
       </p>
 
     </div><!-- /max-w -->
