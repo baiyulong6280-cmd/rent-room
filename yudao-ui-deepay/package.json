@@ -1,6 +1,7 @@
 {
   "name": "deepay-ui",
   "version": "1.0.0",
+  "type": "module",
   "description": "Deepay AI Fashion Design Mini-Store",
   "scripts": {
     "dev": "vite",

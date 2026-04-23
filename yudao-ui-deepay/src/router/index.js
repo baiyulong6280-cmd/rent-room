@@ -33,6 +33,12 @@ const routes = [
 
   // ── 备用宣传页 ────────────────────────────────
   { path: '/landing',      component: Landing,         meta: { title: 'Deepay · AI爆款' } },
+
+  // ── 份额 ──────────────────────────────────────
+  { path: '/share',        component: () => import('@/pages/Share.vue'), meta: { title: '购买份额', requiresAuth: true } },
+
+  // ── 404 ───────────────────────────────────────
+  { path: '/:pathMatch(.*)*', component: () => import('@/pages/NotFound.vue'), meta: { title: '页面不存在' } },
 ]
 
 const router = createRouter({
