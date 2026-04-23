@@ -876,6 +876,233 @@ public class DeepayDesignController {
     }
 
     // ====================================================================
+    // POST /api/inspiration/process — 一键处理管道（filter → score → classify）
+    //
+    // 请求：{ "images": ["url1","url2"], "source": "fashion_week" }
+    // 响应：{ "list": [{ "image","score","style","tags","usable","reason" }] }
+    //
+    // 流程：
+    //   1. filter（剔除垃圾图）
+    //   2. score（5维打分，< 60 丢弃）
+    //   3. classify（风格标签）
+    //   4. 返回 usable=true 列表
+    // ====================================================================
+
+    @PostMapping("/inspiration/process")
+    @Operation(summary = "灵感图一键处理：filter → score → classify，返回可用图列表")
+    public CommonResult<Map<String, Object>> processInspiration(@RequestBody InspirationProcessReqVO req) {
+        List<String> images = req.getImages() != null ? req.getImages() : Collections.emptyList();
+        String source        = req.getSource();
+        log.info("[processInspiration] count={} source={}", images.size(), source);
+
+        List<Map<String, Object>> list = new ArrayList<>();
+        List<String> rejectedList = new ArrayList<>();
+
+        for (String url : images) {
+            // Step 1: filter
+            String rejectReason = inspectionRejectReason(url);
+            if (rejectReason != null) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("image",   url);
+                entry.put("usable",  false);
+                entry.put("reason",  rejectReason);
+                entry.put("score",   0);
+                rejectedList.add(url);
+                list.add(entry);
+                continue;
+            }
+
+            // Step 2: score
+            int score = computeInspirationScore(url, source);
+            if (score < 60) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("image",  url);
+                entry.put("usable", false);
+                entry.put("reason", "low_score");
+                entry.put("score",  score);
+                rejectedList.add(url);
+                list.add(entry);
+                continue;
+            }
+
+            // Step 3: classify
+            Map<String, Object> classified = buildClassifyEntry(url);
+            String style  = (String) classified.get("style");
+            Object tags   = classified.get("tags");
+            double conf   = (double) classified.getOrDefault("confidence", 0.8);
+
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("image",      url);
+            entry.put("score",      score);
+            entry.put("style",      style);
+            entry.put("confidence", conf);
+            entry.put("tags",       tags);
+            entry.put("usable",     true);
+            entry.put("layer",      sourceToLayer(source));
+            list.add(entry);
+        }
+
+        long usableCount = list.stream().filter(e -> Boolean.TRUE.equals(e.get("usable"))).count();
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("list",          list);
+        resp.put("total",         list.size());
+        resp.put("usableCount",   usableCount);
+        resp.put("rejectedCount", rejectedList.size());
+        return success(resp);
+    }
+
+    // ====================================================================
+    // POST /api/ai/selectRefs — AI自动组合3张最合适的参考图
+    //
+    // 请求：{ "images": [{ "url","score","style","tags","layer" }] }
+    // 响应：{ "structure":"url1","style":"url2","detail":"url3","confidence":0.93,
+    //         "items": [{ "role","url","reason" }] }
+    //
+    // 选择逻辑（写死）：
+    //   ① 只取 score >= 70 的图
+    //   ② structure → fashion_week / design layer，全身款式图，score最高
+    //   ③ style     → brand_lookbook / commercial layer，颜色/氛围清晰
+    //   ④ detail    → editorial / style已分类，有细节特征
+    //   ⑤ 三张必须风格接近（避免冲突），但类型不重复
+    // ====================================================================
+
+    @PostMapping("/ai/selectRefs")
+    @Operation(summary = "AI自动组合3张参考图：structure（版型）/ style（风格）/ detail（细节）")
+    public CommonResult<Map<String, Object>> selectRefs(@RequestBody SelectRefsReqVO req) {
+        List<Map<String, Object>> images = req.getImages();
+        if (images == null || images.isEmpty()) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("error", "images 不能为空");
+            r.put("code",  400);
+            return success(r);
+        }
+
+        log.info("[selectRefs] candidateCount={}", images.size());
+
+        // Filter to usable (score >= 70)
+        List<Map<String, Object>> usable = images.stream()
+                .filter(img -> {
+                    Object s = img.get("score");
+                    int score = s instanceof Number ? ((Number) s).intValue() : 0;
+                    return score >= 70;
+                })
+                .sorted((a, b) -> {
+                    int sa = a.get("score") instanceof Number ? ((Number) a.get("score")).intValue() : 0;
+                    int sb = b.get("score") instanceof Number ? ((Number) b.get("score")).intValue() : 0;
+                    return sb - sa; // descending
+                })
+                .collect(Collectors.toList());
+
+        // Fallback: if fewer than 3 usable, relax threshold to 50
+        if (usable.size() < 3) {
+            usable = images.stream()
+                    .filter(img -> {
+                        Object s = img.get("score");
+                        int score = s instanceof Number ? ((Number) s).intValue() : 0;
+                        return score >= 50;
+                    })
+                    .sorted((a, b) -> {
+                        int sa = a.get("score") instanceof Number ? ((Number) a.get("score")).intValue() : 0;
+                        int sb = b.get("score") instanceof Number ? ((Number) b.get("score")).intValue() : 0;
+                        return sb - sa;
+                    })
+                    .collect(Collectors.toList());
+        }
+
+        // If still fewer than 3, use all sorted by score
+        if (usable.size() < 3) {
+            usable = images.stream()
+                    .sorted((a, b) -> {
+                        int sa = a.get("score") instanceof Number ? ((Number) a.get("score")).intValue() : 0;
+                        int sb = b.get("score") instanceof Number ? ((Number) b.get("score")).intValue() : 0;
+                        return sb - sa;
+                    })
+                    .collect(Collectors.toList());
+        }
+
+        // Assign roles: structure, style, detail
+        // structure → prefer design/fashion_week layer, coat/suit/trench types (full-body silhouette)
+        // style     → prefer brand/commercial layer, clean palette
+        // detail    → prefer editorial/inspiration layer, smaller/detail pieces
+
+        Map<String, Object> structurePick = null, stylePick = null, detailPick = null;
+        Set<String> used = new HashSet<>();
+
+        // Pass 1: layer-based assignment
+        for (Map<String, Object> img : usable) {
+            String layer = String.valueOf(img.getOrDefault("layer", ""));
+            String url   = (String) img.get("url");
+            if (url == null) url = (String) img.get("image");
+            if (url == null || used.contains(url)) continue;
+
+            if (structurePick == null && ("design".equals(layer) || "runway".equals(layer))) {
+                structurePick = img; used.add(url);
+            } else if (stylePick == null && "commercial".equals(layer)) {
+                stylePick = img; used.add(url);
+            } else if (detailPick == null && "inspiration".equals(layer)) {
+                detailPick = img; used.add(url);
+            }
+        }
+
+        // Pass 2: fill any missing roles from remaining images
+        for (Map<String, Object> img : usable) {
+            String url = (String) img.get("url");
+            if (url == null) url = (String) img.get("image");
+            if (url == null || used.contains(url)) continue;
+            if (structurePick == null) { structurePick = img; used.add(url); }
+            else if (stylePick == null) { stylePick = img; used.add(url); }
+            else if (detailPick == null) { detailPick = img; used.add(url); }
+            if (structurePick != null && stylePick != null && detailPick != null) break;
+        }
+
+        // Extract URLs
+        String structureUrl = extractUrl(structurePick);
+        String styleUrl     = extractUrl(stylePick);
+        String detailUrl    = extractUrl(detailPick);
+
+        // Confidence based on how many high-quality picks we found
+        int highQualityCount = (int) usable.stream()
+                .filter(img -> { Object s = img.get("score"); return s instanceof Number && ((Number)s).intValue() >= 80; })
+                .count();
+        double confidence = 0.70 + Math.min(0.25, highQualityCount * 0.05);
+
+        // Build items list for frontend rendering
+        List<Map<String, Object>> items = new ArrayList<>();
+        if (structurePick != null) items.add(buildRefItem("structure", "版型", structurePick, "全身廓形，决定版型结构"));
+        if (stylePick     != null) items.add(buildRefItem("style",     "风格", stylePick,     "色调氛围，决定整体感觉"));
+        if (detailPick    != null) items.add(buildRefItem("detail",    "细节", detailPick,    "局部元素，决定设计亮点"));
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("structure",  structureUrl);
+        resp.put("style",      styleUrl);
+        resp.put("detail",     detailUrl);
+        resp.put("confidence", Math.round(confidence * 100.0) / 100.0);
+        resp.put("items",      items);
+        return success(resp);
+    }
+
+    private String extractUrl(Map<String, Object> img) {
+        if (img == null) return null;
+        String url = (String) img.get("url");
+        if (url == null) url = (String) img.get("image");
+        return url;
+    }
+
+    private Map<String, Object> buildRefItem(String role, String roleLabel,
+                                              Map<String, Object> img, String reason) {
+        String url = extractUrl(img);
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("role",      role);
+        item.put("roleLabel", roleLabel);
+        item.put("url",       url);
+        item.put("score",     img.getOrDefault("score", 0));
+        item.put("style",     img.getOrDefault("style", ""));
+        item.put("reason",    reason);
+        return item;
+    }
+
+    // ====================================================================
     // POST /api/ai/styleProfile/create — 创建品牌风格档案
     //
     // 请求：{ "name":"MyBrand","style":"minimal_modern","rules":{...} }
@@ -1894,6 +2121,21 @@ public class DeepayDesignController {
         public void setReference(List<String> v) { this.reference = v; }
         public Double getThreshold()         { return threshold; }
         public void setThreshold(Double v)   { this.threshold = v; }
+    }
+
+    public static class InspirationProcessReqVO {
+        private List<String> images;
+        private String source;
+        public List<String> getImages()       { return images; }
+        public void setImages(List<String> v) { this.images = v; }
+        public String getSource()             { return source; }
+        public void setSource(String v)       { this.source = v; }
+    }
+
+    public static class SelectRefsReqVO {
+        private List<Map<String, Object>> images;
+        public List<Map<String, Object>> getImages()           { return images; }
+        public void setImages(List<Map<String, Object>> v)     { this.images = v; }
     }
 
     public static class GenerateCollectionReqVO {
