@@ -33,6 +33,22 @@
 /* ── Component library ──────────────────────────────────── */
 @layer components {
 
+  /* ── LAYOUT TOKENS ─── */
+  .container {
+    @apply max-w-[480px] mx-auto px-4;
+  }
+  .section {
+    @apply py-[72px];
+  }
+  .title {
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .sub {
+    @apply text-[#9CA3AF] text-sm;
+  }
+
   /* ── PRIMARY BUTTON (pill + neon glow) ─── */
   .btn-primary {
     @apply bg-accent text-black font-medium rounded-full
